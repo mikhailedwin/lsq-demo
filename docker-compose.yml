@@ -1,5 +1,5 @@
 services:
-  # WebRTC SFU. Browsers, the engine, and the avatar renderer all meet here.
+  # WebRTC SFU. Browsers, the engine, and the face renderer all meet here.
   livekit:
     image: livekit/livekit-server:latest
     command: --config /etc/livekit.yaml --node-ip 127.0.0.1
@@ -9,7 +9,9 @@ services:
 
   # Control plane: personas, session tokens, engine sessions.
   api:
-    build: ./apps/api
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
     env_file: .env
     environment:
       LIVEKIT_URL: ${LIVEKIT_URL:-ws://localhost:7880}
@@ -17,9 +19,13 @@ services:
     depends_on:
       - livekit
 
-  # Conversation engine + face renderer (LiveKit Agents worker).
+  # Conversation engine (STT → LLM → TTS). Runs the CPU placeholder face
+  # in-process; GPU faces are dispatched to the qav-face worker instead
+  # (see docker-compose.gpu.yml).
   engine:
-    build: ./services/engine
+    build:
+      context: .
+      dockerfile: services/engine/Dockerfile
     env_file: .env
     environment:
       LIVEKIT_URL: ${LIVEKIT_URL:-ws://localhost:7880}

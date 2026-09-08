@@ -28,6 +28,8 @@ class EngineConfig:
     llm_model: str
 
     renderer: str
+    face_mode: str
+    """auto | local | remote — where the face renders (see qav_engine.avatar.session)."""
     video_width: int
     video_height: int
     video_fps: float
@@ -43,6 +45,7 @@ class EngineConfig:
             tts=_env("QAV_TTS", "elevenlabs").lower(),
             llm_model=_env("QAV_LLM_MODEL", "claude-opus-5"),
             renderer=_env("QAV_RENDERER", "procedural").lower(),
+            face_mode=_env("QAV_FACE_MODE", "auto").lower(),
             video_width=int(_env("QAV_VIDEO_WIDTH", "512")),
             video_height=int(_env("QAV_VIDEO_HEIGHT", "512")),
             video_fps=float(_env("QAV_VIDEO_FPS", "25")),

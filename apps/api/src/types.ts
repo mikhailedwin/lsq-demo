@@ -12,12 +12,22 @@ export const AvatarStyleSchema = z.object({
 });
 export type AvatarStyle = z.infer<typeof AvatarStyleSchema>;
 
+export const AvatarRendererSchema = z.enum(["procedural", "musetalk", "liveavatar"]);
+export type AvatarRenderer = z.infer<typeof AvatarRendererSchema>;
+
 export const AvatarSchema = z.object({
   id: z.string(),
   name: z.string(),
-  /** Which renderer family produces this face. `qav-face-1` = built-in procedural. */
+  /** Face model that renders this avatar. `procedural` runs on CPU inside the engine; the others need the qav-face GPU worker. */
+  renderer: AvatarRendererSchema.default("procedural"),
+  /** Kept for Anam-shaped clients that send `avatarModel`; informational. */
   model: z.string().default("qav-face-1"),
-  style: AvatarStyleSchema,
+  /** Palette for the procedural face. */
+  style: AvatarStyleSchema.optional(),
+  /** Backend inputs: `{ avatarDir }` for MuseTalk (prepared clip), `{ image, prompt }` for Live Avatar. */
+  assets: z.record(z.unknown()).optional(),
+  /** Where the source footage/image came from and under which license (shown in the demo). */
+  attribution: z.string().optional(),
   createdAt: z.string(),
 });
 export type Avatar = z.infer<typeof AvatarSchema>;

@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 
 from livekit import rtc
 from livekit.agents import (
@@ -29,8 +30,9 @@ from livekit.agents import (
     cli,
 )
 from livekit.agents.voice.room_io import RoomOptions
+from qav_face.avatars import AvatarSpec
 
-from .avatar import AvatarSession, get_renderer
+from .avatar import AvatarSession
 from .callbacks import ApiCallbacks
 from .config import CONFIG
 from .persona import Persona
@@ -64,16 +66,23 @@ async def entrypoint(ctx: JobContext) -> None:
     await ctx.connect()
 
     # --- face ------------------------------------------------------------
-    width = persona.video_width or CONFIG.video_width
-    height = persona.video_height or CONFIG.video_height
-    renderer = get_renderer(CONFIG.renderer, width=width, height=height, style=persona.style)
+    spec = AvatarSpec.from_catalog(
+        persona.avatar,
+        avatar_id=persona.avatar_id,
+        width=persona.video_width or CONFIG.video_width,
+        height=persona.video_height or CONFIG.video_height,
+        fps=CONFIG.video_fps,
+        default_renderer=CONFIG.renderer,
+    )
     avatar = AvatarSession(
-        renderer=renderer,
-        video_fps=CONFIG.video_fps,
+        spec=spec,
+        mode=CONFIG.face_mode,
+        catalog_avatar=persona.avatar,
         livekit_url=CONFIG.livekit_url,
         livekit_api_key=CONFIG.livekit_api_key,
         livekit_api_secret=CONFIG.livekit_api_secret,
     )
+    logger.info("face: %s renderer in %s mode", spec.renderer, avatar.mode)
 
     # --- ears / brain / voice ------------------------------------------------
     pipeline = build_pipeline(CONFIG, persona, ctx.proc.userdata.get("vad"))
@@ -165,6 +174,11 @@ async def entrypoint(ctx: JobContext) -> None:
 
 
 def main() -> None:
+    opts: dict = {}
+    # LiveKit stops dispatching to a worker whose host CPU load exceeds this (prod default 0.7).
+    # On a small dev box that shares cores with LiveKit, the API and the face worker, raise it.
+    if os.getenv("QAV_WORKER_LOAD_THRESHOLD"):
+        opts["load_threshold"] = float(os.environ["QAV_WORKER_LOAD_THRESHOLD"])
     cli.run_app(
         WorkerOptions(
             entrypoint_fnc=entrypoint,
@@ -174,6 +188,7 @@ def main() -> None:
             ws_url=CONFIG.livekit_url,
             api_key=CONFIG.livekit_api_key,
             api_secret=CONFIG.livekit_api_secret,
+            **opts,
         )
     )
 

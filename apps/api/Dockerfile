@@ -1,8 +1,8 @@
 FROM node:22-alpine AS build
 WORKDIR /app
 RUN corepack enable
-COPY package.json tsconfig.json ./
-COPY src ./src
+COPY apps/api/package.json apps/api/tsconfig.json ./
+COPY apps/api/src ./src
 RUN pnpm install --no-frozen-lockfile && pnpm build
 
 FROM node:22-alpine

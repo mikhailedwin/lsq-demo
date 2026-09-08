@@ -1,0 +1,36 @@
+# QAV face worker with the MuseTalk 1.5 backend.
+# Needs: NVIDIA GPU (>= 12 GB), nvidia-container-toolkit.
+#   docker build -f services/face/Dockerfile.musetalk -t qav-face:musetalk .
+#   docker run --gpus all --network host --env-file .env -v qav-avatars:/avatars qav-face:musetalk
+FROM nvidia/cuda:12.4.1-cudnn-runtime-ubuntu22.04
+
+ENV DEBIAN_FRONTEND=noninteractive PYTHONUNBUFFERED=1 PIP_NO_CACHE_DIR=1
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      python3.10 python3.10-venv python3-pip git ffmpeg libgl1 libglib2.0-0 curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# --- MuseTalk (MIT) pinned ---------------------------------------------------
+ARG MUSETALK_COMMIT=0a89dec45a0192b824e3cf4daf96c239440c5ed8
+ENV MUSETALK_ROOT=/opt/musetalk MUSETALK_MODELS=/opt/musetalk/models
+RUN git clone https://github.com/TMElyralab/MuseTalk.git $MUSETALK_ROOT \
+    && cd $MUSETALK_ROOT && git checkout $MUSETALK_COMMIT
+
+RUN python3 -m pip install --upgrade pip uv
+# torch first (CUDA 12.4 wheels), then MuseTalk's pinned deps + mmpose stack for preparation
+RUN uv pip install --system torch==2.3.1 torchvision==0.18.1 --index-url https://download.pytorch.org/whl/cu124 \
+    && uv pip install --system -r $MUSETALK_ROOT/requirements.txt \
+    && uv pip install --system --no-cache-dir openmim \
+    && mim install "mmengine" "mmcv==2.0.1" "mmdet==3.1.0" "mmpose==1.1.0"
+
+# --- weights (~1.5 GB) ---------------------------------------------------------
+RUN cd $MUSETALK_ROOT && chmod +x download_weights.sh && sed -i 's#^export HF_ENDPOINT=.*##' download_weights.sh && ./download_weights.sh
+
+# --- QAV face package ----------------------------------------------------------
+COPY services/face /app/face
+RUN uv pip install --system "/app/face[musetalk]"
+
+ENV QAV_AVATAR_DIR=/avatars QAV_RENDERER=musetalk
+VOLUME ["/avatars"]
+WORKDIR /app/face
+# prepare the bundled demo avatars on first start if the volume is empty, then serve
+CMD ["bash", "-lc", "[ -d /avatars/yongen ] || qav-face demo-avatars --only musetalk; python3 -m qav_face.worker start"]

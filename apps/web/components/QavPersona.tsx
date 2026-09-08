@@ -4,7 +4,7 @@ import { createClient, QavEvent, type Message, type PersonaState, type QavClient
 import { useCallback, useEffect, useRef, useState } from "react";
 
 interface Catalog {
-  avatars: { id: string; name: string }[];
+  avatars: { id: string; name: string; renderer?: string; attribution?: string }[];
   voices: { id: string; name: string; provider: string }[];
   llms: { id: string; name: string }[];
   personas: { id: string; name: string }[];
@@ -19,7 +19,7 @@ export function QavPersona() {
   const [catalog, setCatalog] = useState<Catalog | null>(null);
   const [catalogError, setCatalogError] = useState<string | null>(null);
   const [name, setName] = useState("Nova");
-  const [avatarId, setAvatarId] = useState("qav-nova");
+  const [avatarId, setAvatarId] = useState("mt-yongen");
   const [voiceId, setVoiceId] = useState("voice-rachel");
   const [llmId, setLlmId] = useState("claude-opus-5");
   const [systemPrompt, setSystemPrompt] = useState(
@@ -206,12 +206,15 @@ export function QavPersona() {
           <div className="field">
             <label>Avatar</label>
             <select value={avatarId} onChange={(e) => setAvatarId(e.target.value)} disabled={live}>
-              {(catalog?.avatars ?? [{ id: "qav-nova", name: "Nova" }]).map((a) => (
+              {(catalog?.avatars ?? [{ id: "mt-yongen", name: "Yongen (photoreal)", renderer: "musetalk" }]).map((a) => (
                 <option key={a.id} value={a.id}>
-                  {a.name}
+                  {a.name} {a.renderer && a.renderer !== "procedural" ? `— GPU: ${a.renderer}` : ""}
                 </option>
               ))}
             </select>
+            {catalog?.avatars.find((a) => a.id === avatarId)?.attribution && (
+              <small style={{ color: "var(--muted)" }}>{catalog.avatars.find((a) => a.id === avatarId)?.attribution}</small>
+            )}
           </div>
           <div className="field">
             <label>Voice</label>

@@ -4,7 +4,7 @@ from abc import ABC, abstractmethod
 
 import numpy as np
 
-from ...persona import AvatarStyle
+from ..avatars import AvatarStyle
 from ..lipsync import FaceState
 
 

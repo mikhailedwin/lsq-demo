@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from ...persona import AvatarStyle
+from ..avatars import AvatarStyle
 from .base import FaceRenderer
 from .procedural import ProceduralFaceRenderer
 

@@ -3,19 +3,56 @@
 QAV is a self-hosted re-implementation of the [Anam AI](https://anam.ai) stack:
 a **persona** (face + voice + LLM + prompt) that holds a live, face-to-face
 conversation in the browser. Same architecture, same API shapes, same SDK
-surface — but every piece runs on infrastructure you control, and the face
-renderer is a pluggable component instead of a proprietary black box.
+surface — but every piece runs on infrastructure you control, and the face is a
+pluggable model rather than a proprietary black box.
 
 ```
 Browser  ──WebRTC──▶  LiveKit SFU  ◀──WebRTC──  QAV engine (Python)
-   │                      ▲                        ├─ STT  (Deepgram / OpenAI)
-   │  @qav/js-sdk         │                        ├─ LLM  (Claude / OpenAI)
-   │                      │                        ├─ TTS  (ElevenLabs / Cartesia / OpenAI)
-   ▼                      │                        └─ QAV face  ─ audio ─▶ lip-synced video track
-QAV API (Node) ───────────┘  creates room, dispatches engine, mints tokens
-   ▲
-   │  session tokens (never the API key)
+   │                    ▲     ▲                  ├─ STT  (Deepgram / OpenAI)
+   │  @qav/js-sdk       │     │                  ├─ LLM  (Claude / OpenAI)
+   │                    │     │  TTS audio       └─ TTS  (ElevenLabs / Cartesia / OpenAI)
+   ▼                    │     │  (data stream)          │
+QAV API (Node) ─────────┘     └──  qav-face worker ◀────┘
+   ▲   rooms, dispatch,           MuseTalk / Live Avatar / procedural
+   │   session tokens             → lip-synced video published on behalf of the engine
 Your backend
+```
+
+## The face
+
+The only genuinely proprietary part of Anam is the neural face model. QAV puts
+three open ones behind a single interface, chosen per avatar:
+
+| Renderer | Look | Needs | Upstream (license) |
+|---|---|---|---|
+| **`musetalk`** | **Photoreal.** It *is* a real person's footage; the model synthesizes the mouth. | 8–30 s clip of a person; NVIDIA ≥ 12 GB (25 fps+) | [MuseTalk 1.5](https://github.com/TMElyralab/MuseTalk) (MIT) |
+| **`liveavatar`** | **Generative.** Whole face and head motion from one photo — today's top open-source quality. | one portrait; NVIDIA **80 GB** (48 GB with FP8) | [Live Avatar](https://github.com/Alibaba-Quark/LiveAvatar), ECCV 2026 (Apache-2.0) |
+| `procedural` | Stylised placeholder | nothing — CPU, ~8 ms/frame | built in |
+
+`procedural` exists so the whole stack runs and tests on a laptop with no GPU
+and no API keys. It is a placeholder, not a product face — pick a photoreal
+avatar in the demo once you have a GPU. Details, the backend interface and the
+`qav-face selftest` workflow: [`services/face/README.md`](services/face/README.md).
+
+### Choosing a GPU
+
+| Renderer | Instance (indicative) | ~$/hr | Notes |
+|---|---|---|---|
+| `musetalk` | 1× L4 / A10G (24 GB) — AWS `g6.xlarge`, GCP `g2-standard-8` | ~$0.8–1.1 | comfortably real time; the sweet spot for a demo |
+| `musetalk` | 1× RTX 4090 (community clouds) | ~$0.4–0.7 | fastest per dollar |
+| `liveavatar` | 1× H100 80 GB — AWS `p5.48xlarge` slice, or a single-GPU cloud | ~$3–4 | single-GPU mode; measure before trusting it in real time |
+| `liveavatar` | 1× A100/L40S 48 GB with `QAV_LIVEAVATAR_FP8=1` | ~$1.5–2.5 | slight quality loss |
+
+One session per GPU. Provision with:
+
+```bash
+./infra/gpu/setup.sh musetalk     # driver check → docker + nvidia toolkit → build → run command
+```
+
+Then verify the renderer on that box **before** wiring up a session:
+
+```bash
+qav-face selftest --renderer musetalk --avatar yongen --out ./out   # PNGs, contact sheet, MP4, ms/frame
 ```
 
 ## How a session works (mirrors Anam 1:1)
@@ -24,69 +61,63 @@ Your backend
 |---|---|---|
 | 1. Your server mints a short-lived token | `POST /v1/auth/session-token` with API key | same path, same body (`personaConfig` / `personaId`) |
 | 2. Browser starts the session | `createClient(token).streamToVideoElement(id)` → `POST /v1/engine/session` | identical — the SDK does it for you |
-| 3. Engine joins | Anam cloud joins the room with a face worker | `qav-engine` (LiveKit Agents job) joins, brings the face with it |
-| 4. Media | Avatar publishes video+audio, subscribes to your mic | identical; browser SDK attaches tracks to your `<video>` |
+| 3. Engine joins | Anam cloud joins the room with a face worker | `qav-engine` joins; it dispatches `qav-face` for GPU avatars, or renders the CPU face itself |
+| 4. Media | Avatar publishes video+audio, subscribes to your mic | identical; the face publishes *on behalf of* the engine, so clients see one participant |
 | 5. Transcripts / state | `MESSAGE_HISTORY_UPDATED`, talk commands | same events, same `talk()` / `sendUserMessage()` |
 
-Anam's own LiveKit plugin (`livekit-plugins-anam`) uses exactly this shape —
-a second participant that publishes *on behalf of* the agent and receives the
-agent's TTS audio — so QAV's `AvatarSession` is a drop-in for it.
+Anam's own LiveKit plugin (`livekit-plugins-anam`) uses exactly this shape — a
+second participant publishing on behalf of the agent, fed the agent's TTS audio
+over a data stream — so QAV's `AvatarSession` is a drop-in for it.
 
 ## Repository layout
 
 ```
-apps/api/            QAV control plane (Hono, TypeScript)  — personas, tokens, engine sessions
-apps/web/            Demo (Next.js)                         — persona picker, video, transcript
+apps/api/            QAV control plane (Hono, TypeScript)   — personas, tokens, sessions, dispatch
+apps/web/            Demo (Next.js)                          — persona picker, video, transcript
 packages/js-sdk/     @qav/js-sdk (browser)                   — Anam-shaped client on livekit-client
-services/engine/     qav-engine (Python, LiveKit Agents)     — STT→LLM→TTS pipeline + face renderer
+services/engine/     qav-engine (Python, LiveKit Agents)     — STT→LLM→TTS pipeline, RPC, avatar session
+services/face/       qav-face (Python)                       — face backends + the GPU worker
 infra/livekit/       livekit-server config for local dev
-docker-compose.yml   livekit + api + engine
+infra/gpu/setup.sh   one-shot GPU box provisioning
+docker-compose.yml   livekit + api + engine   (+ docker-compose.gpu.yml for the face worker)
 ```
 
-## Quickstart (local, ~5 minutes)
+## Quickstart (local, no GPU, no API keys)
 
-Prereqs: Node 20+, pnpm, Python 3.10+, [uv](https://docs.astral.sh/uv/), Docker (for LiveKit).
+Prereqs: Node 20+, pnpm, Python 3.10+, [uv](https://docs.astral.sh/uv/), Docker.
 
 ```bash
-cp .env.example .env            # fill in vendor keys, or leave the mock providers (see below)
-pnpm install
-pnpm build                      # builds the SDK, API and web app
+cp .env.example .env            # set QAV_STT/QAV_LLM/QAV_TTS to `mock` to skip vendor keys
+pnpm install && pnpm build
 
-# 1. WebRTC server
-docker compose up livekit       # or: livekit-server --dev
+docker compose up livekit       # 1. WebRTC server
+pnpm dev:api                    # 2. control plane  → http://localhost:8787
 
-# 2. Control plane
-pnpm dev:api                    # http://localhost:8787
+cd services/face  && uv venv && uv pip install -e ".[dev]"   # 3. face package
+cd ../engine      && uv venv && uv pip install -e . -e ../face
+python -m qav_engine.worker download-files                   #    VAD weights (skip if QAV_STT=mock)
+python -m qav_engine.worker dev                              # 4. engine
 
-# 3. Engine (conversation + face)
-cd services/engine
-uv venv && uv pip install -e ".[dev]"
-python -m qav_engine.worker download-files   # VAD weights (skip when QAV_STT=mock)
-python -m qav_engine.worker dev
-
-# 4. Demo
-pnpm dev:web                    # http://localhost:3000 → Start
+pnpm dev:web                    # 5. demo → http://localhost:3000 → Start
 ```
 
-### Running with zero vendor keys
+Pick a "placeholder (CPU)" avatar for this mode; photoreal avatars need the GPU
+worker below.
 
-Set `QAV_STT=mock QAV_LLM=mock QAV_TTS=mock` in `.env`. The persona then speaks
-a synthesised tone envelope (so you can see lip-sync and hear audio), echoes
-whatever you type, and skips speech recognition. This is what the end-to-end
-test uses.
+## Adding the photoreal face
 
-### Real pipeline
+```bash
+# on the GPU box
+./infra/gpu/setup.sh musetalk
+docker run -d --gpus all --network host \
+  -e LIVEKIT_URL=wss://your-livekit -e LIVEKIT_API_KEY=... -e LIVEKIT_API_SECRET=... \
+  -v qav-avatars:/avatars qav-face:musetalk
+```
 
-| Role | Env | Default | Alternatives |
-|---|---|---|---|
-| Ears | `QAV_STT` | `deepgram` (`DEEPGRAM_API_KEY`) | `openai` |
-| Brain | `QAV_LLM` | `anthropic` → `claude-opus-5` (`ANTHROPIC_API_KEY`) | `openai` |
-| Voice | `QAV_TTS` | `elevenlabs` (`ELEVEN_API_KEY`) | `cartesia`, `openai` |
-| Face | `QAV_RENDERER` | `procedural` (CPU, built in) | your own — see below |
-
-Per-persona choices (voice, LLM model, avatar) come from the catalog in the
-API (`/v1/voices`, `/v1/llms`, `/v1/avatars`); the env picks which providers
-the deployment can serve.
+The engine dispatches this worker automatically whenever a session picks an
+avatar whose `renderer` is `musetalk` or `liveavatar` — no engine restart, no
+config change. `docker compose -f docker-compose.yml -f docker-compose.gpu.yml
+--profile musetalk up` does the same locally.
 
 ## Using the SDK
 
@@ -97,10 +128,10 @@ const { sessionToken } = await fetch("/api/session-token", { method: "POST" }).t
 const qav = createClient(sessionToken);
 
 qav.addListener(QavEvent.MESSAGE_HISTORY_UPDATED, (messages) => render(messages));
-qav.addListener(QavEvent.PERSONA_STATE_CHANGED, (state) => console.log(state)); // listening | thinking | speaking
+qav.addListener(QavEvent.PERSONA_STATE_CHANGED, (s) => console.log(s)); // listening | thinking | speaking
 
-await qav.streamToVideoElement("persona-video");   // mic on, avatar in your <video>
-await qav.talk("Welcome back!");                    // persona says this verbatim
+await qav.streamToVideoElement("persona-video");    // mic on, avatar in your <video>
+await qav.talk("Welcome back!");                     // persona says this verbatim
 await qav.sendUserMessage("What's on my calendar?"); // persona answers as if spoken
 await qav.stopStreaming();
 ```
@@ -113,7 +144,7 @@ All admin routes take `Authorization: Bearer $QAV_API_KEY`.
 |---|---|---|
 | `POST` | `/v1/auth/session-token` | `{ personaConfig }` or `{ personaId }` (+ `sessionOptions`, `expiresIn`, `environment`) → `{ sessionToken }` |
 | `GET/POST/PUT/DELETE` | `/v1/personas[/:id]` | Saved persona configs |
-| `GET/POST` | `/v1/avatars`, `/v1/voices`, `/v1/llms` | Catalogs |
+| `GET/POST` | `/v1/avatars`, `/v1/voices`, `/v1/llms` | Catalogs (an avatar carries its `renderer` + `assets`) |
 | `GET` | `/v1/sessions[/:id]`, `/v1/sessions/:id/transcript` | Session records + transcripts |
 | `POST` | `/v1/sessions/:id/stop` | End a session |
 
@@ -124,39 +155,22 @@ Session-token routes (what the SDK calls): `POST /v1/engine/session`,
 "bring your own LiveKit" mode: your own voice agent runs the conversation and
 QAV only supplies the face — the same shape Anam's LiveKit plugin sends.
 
-## Building your own face
-
-The only truly proprietary part of Anam is the neural face model. QAV isolates
-it behind one interface:
-
-```python
-# services/engine/qav_engine/avatar/renderers/base.py
-class FaceRenderer(ABC):
-    def warmup(self) -> None: ...
-    def render(self, state: FaceState) -> np.ndarray:   # (H, W, 4) uint8 RGBA, once per video frame
-        ...
-```
-
-`FaceState` carries per-frame animation parameters derived from the TTS audio
-(`mouth_open`, `mouth_width`, `teeth`, `blink`, `head_yaw/pitch`, `gaze_*`,
-`energy`) by `LipSyncAnalyzer`. The built-in `ProceduralFaceRenderer` draws a
-stylised character from an `AvatarStyle` palette at ~8 ms/frame on one CPU
-core. To plug in a neural renderer (MuseTalk, Wav2Lip, a diffusion talking
-head, ...), implement `FaceRenderer`, call `register_renderer("my-face", MyRenderer)`,
-and set `QAV_RENDERER=my-face`. Renderers that want raw audio instead of
-parameters can subclass `FaceVideoGenerator`.
-
 ## Tests
 
 ```bash
-pnpm --filter @qav/api test                      # token / auth / catalog tests
-cd services/engine && python -m pytest           # lip-sync + renderer tests
-QAV_PREVIEW_DIR=/tmp/qav python -m pytest -k preview   # writes a contact sheet of faces
+pnpm --filter @qav/api test                  # tokens, auth tiers, catalog
+cd services/face   && python -m pytest       # frame loop, backends, lip-sync, renderer perf
+cd services/engine && python -m pytest       # persona parsing, local vs remote face
+QAV_PREVIEW_DIR=/tmp/qav python -m pytest -k preview   # contact sheet of the CPU faces
 ```
+
+The GPU backends are unit-tested for contract and error handling without a GPU;
+their visual output is verified with `qav-face selftest` on the GPU box.
 
 ## Production notes
 
-- Put a real `QAV_API_KEY` / `QAV_SESSION_SECRET` in place and terminate TLS in front of the API and LiveKit (`wss://`).
-- LiveKit needs UDP (or TURN) reachable from browsers; see `infra/livekit/livekit.yaml` and LiveKit's deployment docs.
-- The API's store is in-memory with JSON persistence (`QAV_DATA_FILE`); swap `apps/api/src/store.ts` for Postgres when you outgrow it.
-- Scale the engine horizontally: every worker registers as `qav-engine` and LiveKit load-balances dispatches across them.
+- Real `QAV_API_KEY` / `QAV_SESSION_SECRET`, TLS in front of the API and LiveKit (`wss://`).
+- LiveKit needs UDP (or TURN) reachable from browsers — see `infra/livekit/livekit.yaml`.
+- The API store is in-memory with JSON persistence (`QAV_DATA_FILE`); swap `apps/api/src/store.ts` for Postgres when you outgrow it.
+- Scale horizontally: every engine registers as `qav-engine` and every face worker as `qav-face`; LiveKit load-balances dispatches. Budget one GPU per concurrent face session.
+- Only build a likeness of a real person with their consent; the seeded demo avatars use sample assets from the upstream model repos.

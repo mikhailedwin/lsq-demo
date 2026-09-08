@@ -14,31 +14,6 @@ DEFAULT_SYSTEM_PROMPT = (
 
 
 @dataclass(frozen=True)
-class AvatarStyle:
-    skin: str = "#f1c9a5"
-    hair: str = "#3b2a1f"
-    eyes: str = "#3f6d8e"
-    lips: str = "#c46a6a"
-    shirt: str = "#2f4858"
-    background: str = "#e9eef5"
-    hair_style: str = "short"
-
-    @classmethod
-    def from_dict(cls, d: dict[str, Any] | None) -> AvatarStyle:
-        if not d:
-            return cls()
-        return cls(
-            skin=d.get("skin", cls.skin),
-            hair=d.get("hair", cls.hair),
-            eyes=d.get("eyes", cls.eyes),
-            lips=d.get("lips", cls.lips),
-            shirt=d.get("shirt", cls.shirt),
-            background=d.get("background", cls.background),
-            hair_style=d.get("hairStyle", cls.hair_style),
-        )
-
-
-@dataclass(frozen=True)
 class VoiceRef:
     provider: str = "mock"
     provider_voice_id: str = "tone"
@@ -57,7 +32,8 @@ class Persona:
     name: str
     avatar_id: str
     avatar_model: str
-    style: AvatarStyle
+    avatar: dict[str, Any]
+    """The catalog entry as the API sent it (renderer, style, assets) — handed to the face."""
     voice: VoiceRef
     llm: LlmRef
     system_prompt: str
@@ -85,8 +61,8 @@ class Persona:
             session_id=d.get("sessionId", ""),
             name=pc.get("name", "QAV"),
             avatar_id=pc.get("avatarId", avatar.get("id", "qav-nova")),
-            avatar_model=pc.get("avatarModel") or avatar.get("model") or "qav-face-1",
-            style=AvatarStyle.from_dict(avatar.get("style")),
+            avatar_model=pc.get("avatarModel") or avatar.get("model") or avatar.get("renderer") or "procedural",
+            avatar=dict(avatar) if avatar else {"id": pc.get("avatarId", "qav-nova"), "renderer": "procedural"},
             voice=VoiceRef(
                 provider=voice.get("provider", "mock"),
                 provider_voice_id=voice.get("providerVoiceId", "tone"),

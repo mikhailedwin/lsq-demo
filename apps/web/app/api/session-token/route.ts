@@ -26,7 +26,7 @@ export async function POST(req: Request) {
     : {
         personaConfig: {
           name: body.name || "Nova",
-          avatarId: body.avatarId || "qav-nova",
+          avatarId: body.avatarId || "mt-yongen",
           voiceId: body.voiceId || "voice-rachel",
           llmId: body.llmId || "claude-opus-5",
           systemPrompt:

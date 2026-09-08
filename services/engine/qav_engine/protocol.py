@@ -1,18 +1,27 @@
-"""Wire constants shared with the API (apps/api) and the browser SDK (packages/js-sdk)."""
+"""Wire constants — single source of truth lives in qav_face.protocol."""
 
-# Participant identities inside a session room.
-ENGINE_IDENTITY = "qav-engine"
-AVATAR_IDENTITY = "qav-avatar"
-AVATAR_NAME = "QAV Avatar"
+from qav_face.protocol import (
+    AUDIO_CHANNELS,
+    AUDIO_SAMPLE_RATE,
+    AVATAR_IDENTITY,
+    AVATAR_NAME,
+    ENGINE_AGENT_NAME as AGENT_NAME,
+    ENGINE_IDENTITY,
+    FACE_AGENT_NAME,
+    RPC_INTERRUPT,
+    RPC_TALK,
+    RPC_USER_MESSAGE,
+)
 
-# Agent name the worker registers under; the API dispatches to it explicitly.
-AGENT_NAME = "qav-engine"
-
-# RPC methods the browser SDK invokes on the engine participant.
-RPC_TALK = "qav.talk"
-RPC_USER_MESSAGE = "qav.user_message"
-RPC_INTERRUPT = "qav.interrupt"
-
-# Audio format between TTS, the queue, and the face renderer.
-AUDIO_SAMPLE_RATE = 24_000
-AUDIO_CHANNELS = 1
+__all__ = [
+    "AGENT_NAME",
+    "AUDIO_CHANNELS",
+    "AUDIO_SAMPLE_RATE",
+    "AVATAR_IDENTITY",
+    "AVATAR_NAME",
+    "ENGINE_IDENTITY",
+    "FACE_AGENT_NAME",
+    "RPC_INTERRUPT",
+    "RPC_TALK",
+    "RPC_USER_MESSAGE",
+]

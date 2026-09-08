@@ -19,7 +19,7 @@ import math
 import numpy as np
 from PIL import Image, ImageDraw, ImageFilter
 
-from ...persona import AvatarStyle
+from ..avatars import AvatarStyle
 from ..lipsync import FaceState
 from .base import FaceRenderer
 

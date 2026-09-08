@@ -9,10 +9,10 @@ import numpy as np
 import pytest
 from PIL import Image
 
-from qav_engine.avatar.lipsync import LipSyncAnalyzer
-from qav_engine.avatar.renderers import get_renderer
-from qav_engine.mock import MockTTS
-from qav_engine.persona import AvatarStyle
+from qav_face.avatars import AvatarStyle
+from qav_face.lipsync import LipSyncAnalyzer
+from qav_face.renderers import get_renderer
+from qav_face.testing import synth_speech
 
 SR = 24_000
 FPS = 25
@@ -20,8 +20,7 @@ SPF = SR // FPS
 
 
 def _pcm(text: str) -> np.ndarray:
-    pcm = MockTTS().render_pcm(text)
-    return np.frombuffer(pcm, dtype=np.int16)
+    return synth_speech(text, sample_rate=SR)
 
 
 @pytest.mark.parametrize("hair", ["short", "long", "bun", "bald"])
