@@ -34,6 +34,8 @@ from typing import Any
 import numpy as np
 
 from ..avatars import AvatarSpec, avatar_root
+from ..quality import TemporalSmoother, find_seamless_loop
+from ..restore import FaceRestorer
 from .base import FaceBackend
 
 logger = logging.getLogger("qav.face.musetalk")
@@ -87,6 +89,9 @@ class MuseTalkBackend(FaceBackend):
         self._tail = np.zeros(LEFT_CONTEXT_FRAMES * self._spf, dtype=np.int16)
         self._idx = 0
         self._loaded = False
+        # quality pipeline: sharpen the generated mouth, then de-flicker it
+        self._restore = FaceRestorer.from_env(fps=spec.fps)
+        self._smoother = TemporalSmoother(strength=float(os.getenv("QAV_FACE_SMOOTH", "0.6")))
         # populated by warmup()
         self._frames: list[np.ndarray] = []
         self._masks: list[np.ndarray] = []
@@ -161,17 +166,29 @@ class MuseTalkBackend(FaceBackend):
         h, w = self._frames[0].shape[:2]
         self._crop = _fit_box(w, h, self.width, self.height)
         self._loaded = True
+
+        # restoration decides whether it fits the frame budget on *this* GPU,
+        # measured on a real crop rather than guessed
+        x1, y1, x2, y2 = self._coords[0]
+        self._restore.warmup(self._frames[0][y1:y2, x1:x2].copy())
+
         # one dummy pass so CUDA kernels are compiled before the first real batch
         self.speech_frames(np.zeros((self.batch_frames + self.lookahead_frames) * self._spf, dtype=np.int16), self.batch_frames)
         self._idx = 0
         self._tail[:] = 0
-        logger.info("MuseTalk ready: %d cycle frames, output %dx%d", n, self.width, self.height)
+        self._smoother.reset()
+        logger.info(
+            "MuseTalk ready: %d cycle frames, output %dx%d, restoration=%s, smoothing=%.2f",
+            n, self.width, self.height, "on" if self._restore.enabled else "off", self._smoother.strength,
+        )
 
     # --------------------------------------------------------------- frames
     def idle_frame(self) -> np.ndarray:
         self.warmup()
+        # untouched original footage: the person breathes and blinks for real
         frame = self._frames[self._idx % len(self._frames)]
         self._idx += 1
+        self._smoother.reset()  # don't blend real footage into the next generated frame
         return self._fit(frame)
 
     def speech_frames(self, audio: np.ndarray, n_frames: int) -> list[np.ndarray]:
@@ -198,11 +215,19 @@ class MuseTalkBackend(FaceBackend):
             pred = self._unet.model(latent_batch, self._timesteps, encoder_hidden_states=audio_feature).sample
             recon = self._vae.decode_latents(pred.to(dtype=self._vae.vae.dtype))  # n × 256×256×3 BGR
 
+        # sharpen the generated crops before they are pasted back, so restoration
+        # never touches the real footage around them
+        faces = [f.astype(np.uint8) for f in recon]
+        faces = self._restore(faces)
+        # de-flicker in crop space: at full-frame scale the static background
+        # would dominate the motion estimate and the mouth would be over-smoothed
+        faces = self._smoother(faces)
+
         out = []
-        for j, face in enumerate(recon):
+        for j, face in enumerate(faces):
             k = (self._idx + j) % len(self._frames)
             x1, y1, x2, y2 = self._coords[k]
-            face = self._cv2.resize(face.astype(np.uint8), (x2 - x1, y2 - y1))
+            face = self._cv2.resize(face, (x2 - x1, y2 - y1), interpolation=self._cv2.INTER_LANCZOS4)
             composed = self._blend(self._frames[k].copy(), face, [x1, y1, x2, y2], self._masks[k], self._mask_coords[k])
             out.append(self._fit(composed))
         self._idx += n
@@ -210,9 +235,11 @@ class MuseTalkBackend(FaceBackend):
 
     def segment_end(self) -> None:
         self._tail[:] = 0
+        self._smoother.reset()
 
     def reset(self) -> None:
         self._tail[:] = 0
+        self._smoother.reset()
 
     def close(self) -> None:
         if self._loaded:
@@ -240,7 +267,11 @@ class MuseTalkBackend(FaceBackend):
         x0, y0, x1, y1 = self._crop
         crop = bgr[y0:y1, x0:x1]
         if crop.shape[1] != self.width or crop.shape[0] != self.height:
-            crop = self._cv2.resize(crop, (self.width, self.height), interpolation=self._cv2.INTER_AREA)
+            # AREA when shrinking, LANCZOS when enlarging — using AREA to upscale
+            # is exactly how a photoreal face turns into a soft one
+            shrinking = crop.shape[1] > self.width
+            interp = self._cv2.INTER_AREA if shrinking else self._cv2.INTER_LANCZOS4
+            crop = self._cv2.resize(crop, (self.width, self.height), interpolation=interp)
         rgba = self._cv2.cvtColor(crop, self._cv2.COLOR_BGR2RGBA)
         return np.ascontiguousarray(rgba)
 
@@ -308,23 +339,35 @@ def prepare_avatar(
         logger.info("extracting landmarks for %d frames", len(src_imgs))
         coord_list, frame_list = get_landmark_and_bbox(src_imgs, bbox_shift)
         placeholder = (0.0, 0.0, 0.0, 0.0)
-        latents, keep_frames, keep_coords = [], [], []
+        kept_frames, kept_coords = [], []
         for bbox, frame in zip(coord_list, frame_list):
             if bbox == placeholder:
                 continue  # no face in this frame: drop it from the loop
             x1, y1, x2, y2 = bbox
             y2 = min(y2 + extra_margin, frame.shape[0])
-            crop = cv2.resize(frame[y1:y2, x1:x2], (FACE_SIZE, FACE_SIZE), interpolation=cv2.INTER_LANCZOS4)
-            latents.append(vae.get_latents_for_unet(crop).cpu())
-            keep_frames.append(frame)
-            keep_coords.append([int(x1), int(y1), int(x2), int(y2)])
-        if not latents:
+            kept_frames.append(frame)
+            kept_coords.append([int(x1), int(y1), int(x2), int(y2)])
+        if not kept_frames:
             raise RuntimeError("no face detected in the clip")
+        if len(kept_frames) < len(frame_list) * 0.8:
+            logger.warning(
+                "a face was found in only %d of %d frames — the loop may jump; run `qav-face check` on the source",
+                len(kept_frames), len(frame_list),
+            )
 
-        # ping-pong cycle so the idle loop never jumps
-        frames_cycle = keep_frames + keep_frames[::-1]
-        coords_cycle = keep_coords + keep_coords[::-1]
-        latents_cycle = latents + latents[::-1]
+        # Pick a forward-playing loop whose end matches its start. The reference
+        # implementation appends the clip reversed, which plays the person's head
+        # motion backwards — obvious on a talking head.
+        start, end = find_seamless_loop(kept_frames, min_frames=min(len(kept_frames), int(fps * 2)))
+        frames_cycle = kept_frames[start:end]
+        coords_cycle = kept_coords[start:end]
+        logger.info("loop: frames %d-%d of %d (%.1fs, seamless)", start, end, len(kept_frames), len(frames_cycle) / fps)
+
+        # latents only for the frames we actually keep
+        latents_cycle = []
+        for frame, (x1, y1, x2, y2) in zip(frames_cycle, coords_cycle):
+            crop = cv2.resize(frame[y1:y2, x1:x2], (FACE_SIZE, FACE_SIZE), interpolation=cv2.INTER_LANCZOS4)
+            latents_cycle.append(vae.get_latents_for_unet(crop).cpu())
 
         mask_coords = []
         for i, frame in enumerate(frames_cycle):
@@ -332,6 +375,8 @@ def prepare_avatar(
             mask, crop_box = get_image_prepare_material(frame, coords_cycle[i], fp=fp, mode=parsing_mode)
             cv2.imwrite(str(masks_dir / f"{i:08d}.png"), mask)
             mask_coords.append([int(v) for v in crop_box])
+
+        face_px = float(np.mean([c[2] - c[0] for c in coords_cycle]))
     finally:
         os.chdir(cwd)
 
@@ -349,6 +394,7 @@ def prepare_avatar(
             "fps": fps,
             "width": w,
             "height": h,
+            "face_px": round(face_px),
             "bbox_shift": bbox_shift,
             "extra_margin": extra_margin,
             "parsing_mode": parsing_mode,
@@ -357,4 +403,11 @@ def prepare_avatar(
         indent=2,
     )
     shutil.rmtree(tmp_dir, ignore_errors=True)
+    if face_px < 220:
+        logger.warning(
+            "the face is only %.0f px across in this clip; MuseTalk works at 256 px, so the mouth will look soft. "
+            "Use a tighter framing or a higher-resolution source.",
+            face_px,
+        )
+    logger.info("avatar %s: %d loop frames, %.0f px face, output %dx%d", avatar_id, len(frames_cycle), face_px, w, h)
     return str(out_dir)

@@ -1,15 +1,16 @@
 """qav-face command line.
 
-    qav-face selftest --renderer procedural --out /tmp/qav-selftest
-    qav-face selftest --renderer musetalk --avatar yongen --out /tmp/qav-selftest
-    qav-face prepare --renderer musetalk --avatar yongen --video data/video/yongen.mp4
-    qav-face demo-avatars           # prepare the bundled demo avatars for every installed backend
-    qav-face start                  # run the worker (same as python -m qav_face.worker start)
+    qav-face check    --video alice.mp4                    # is this footage good enough? (CPU)
+    qav-face prepare  --renderer musetalk --avatar alice --video alice.mp4
+    qav-face tune     --avatar alice --video alice.mp4     # compare bbox_shift values
+    qav-face selftest --renderer musetalk --avatar alice --out ./out
+    qav-face demo-avatars                                  # prepare the bundled demo avatars
+    qav-face start                                         # run the worker
 
-`selftest` is the no-GPU-in-CI escape hatch: it drives a backend with a WAV (or
-synthetic speech) through the exact frame loop the worker uses and writes
-PNG frames, a contact sheet and — if imageio is installed — an MP4 with audio,
-so you can eyeball lip-sync on the GPU box before wiring up a session.
+The quality workflow is: **check** the footage before you rent a GPU, **prepare**
+it, **tune** the mouth, then **selftest** — which drives the real frame loop and
+reports mouth sharpness, temporal jitter and ms/frame alongside PNGs, a contact
+sheet and an MP4, so you know how it looks before a session does.
 """
 
 from __future__ import annotations
@@ -115,9 +116,28 @@ def cmd_selftest(a: argparse.Namespace) -> int:
         sheet.paste(Image.fromarray(f).resize((tile, tile)), ((i % 4) * tile, (i // 4) * tile))
     sheet.save(os.path.join(a.out, "contact-sheet.png"))
 
+    # objective quality read on the *speaking* frames (idle frames are untouched footage)
+    from .quality import region_report
+
+    speech = [f[..., :3] for f in frames[: max(1, len(frames) - int(a.fps * a.idle_seconds))]]
+    rep = region_report(speech)
+    budget = 1000.0 / a.fps
+    print()
+    print(f"  mouth sharpness   {rep.mouth_sharpness:8.0f}")
+    print(f"  face sharpness    {rep.face_sharpness:8.0f}")
+    print(f"  ratio             {rep.sharpness_ratio:8.2f}   (1.0 = mouth as sharp as the rest of the face)")
+    print(f"  temporal jitter   {rep.jitter:8.3f}   (still head ~0.03, visible flicker > 0.25)")
+    print(f"  verdict           {rep.verdict}")
+    print(f"  speed             {gen.render_ms:8.1f} ms/frame vs {budget:.0f} ms budget at {a.fps:.0f} fps"
+          f"  {'OK' if gen.render_ms <= budget else 'TOO SLOW — reduce resolution or QAV_MUSETALK_BATCH'}")
+
     mp4 = os.path.join(a.out, "selftest.mp4")
+    silent = os.path.join(a.out, "_silent.mp4")
     try:
+        import subprocess
+
         import imageio.v3 as iio  # type: ignore
+        import imageio_ffmpeg  # type: ignore
 
         wav_path = os.path.join(a.out, "audio.wav")
         with wave.open(wav_path, "wb") as w:
@@ -125,17 +145,81 @@ def cmd_selftest(a: argparse.Namespace) -> int:
             w.setsampwidth(2)
             w.setframerate(AUDIO_SAMPLE_RATE)
             w.writeframes(audio_out.tobytes())
-        iio.imwrite(mp4.replace(".mp4", "-silent.mp4"), [f[..., :3] for f in frames], fps=a.fps, codec="libx264")
-        import subprocess
-
-        subprocess.run(
-            ["ffmpeg", "-y", "-loglevel", "error", "-i", mp4.replace(".mp4", "-silent.mp4"), "-i", wav_path, "-c:v", "copy", "-c:a", "aac", "-shortest", mp4],
-            check=False,
+        iio.imwrite(silent, [f[..., :3] for f in frames], fps=a.fps, codec="libx264")
+        # imageio ships its own ffmpeg; don't depend on one being installed
+        ff = imageio_ffmpeg.get_ffmpeg_exe()
+        r = subprocess.run(
+            [ff, "-y", "-loglevel", "error", "-i", silent, "-i", wav_path, "-c:v", "copy", "-c:a", "aac", "-shortest", mp4],
+            capture_output=True,
         )
+        if r.returncode == 0:
+            os.remove(silent)
+            print(f"\nwatch this first: {mp4}")
+        else:
+            os.replace(silent, mp4)
+            print(f"\nwatch this first: {mp4} (no audio track: {r.stderr.decode()[:120]})")
     except Exception as e:  # noqa: BLE001
         print(f"(no MP4: {e}; PNG frames + contact sheet written)")
 
-    print(f"{len(frames)} frames, backend {type(backend).__name__}, avg {gen.render_ms:.1f} ms/frame → {a.out}")
+    print(f"\n{len(frames)} frames, backend {type(backend).__name__} → {a.out}")
+    return 0
+
+
+def cmd_check(a: argparse.Namespace) -> int:
+    """Score candidate footage before spending money on a GPU."""
+    from .clipcheck import check_clip
+
+    rep = check_clip(a.video)
+    print(rep.render())
+    return 1 if rep.failed else 0
+
+
+def cmd_tune(a: argparse.Namespace) -> int:
+    """Render the same line at several bbox_shift values so you can pick the best mouth.
+
+    MuseTalk's own guidance is to run once to learn the adjustable range, then
+    re-run within it; positive values open the mouth more, negative less.
+    """
+    import shutil
+
+    from PIL import Image
+
+    from .testing import synth_speech
+
+    values = [int(v) for v in a.values.split(",")]
+    root = os.path.join(a.out, "tune")
+    os.makedirs(root, exist_ok=True)
+    strips = []
+    for v in values:
+        print(f"--- bbox_shift={v} ---")
+        from .backends.musetalk import prepare_avatar
+
+        tmp_id = f"_tune_{a.avatar}_{v}"
+        prepare_avatar(avatar_id=tmp_id, video_path=a.video, bbox_shift=v, max_seconds=a.seconds)
+        sub = argparse.Namespace(
+            renderer="musetalk", avatar=tmp_id, image=None, prompt=None, wav=a.wav, text=a.text,
+            width=a.width, height=a.height, fps=a.fps, idle_seconds=0.0, out=os.path.join(root, f"shift_{v}"),
+        )
+        cmd_selftest(sub)
+        frames = sorted(f for f in os.listdir(sub.out) if f.endswith(".png") and f[0].isdigit())
+        picks = [frames[int(i * (len(frames) - 1) / 5)] for i in range(6)] if len(frames) >= 6 else frames
+        strip = Image.new("RGB", (len(picks) * 256, 256 + 20), "black")
+        for i, name in enumerate(picks):
+            strip.paste(Image.open(os.path.join(sub.out, name)).convert("RGB").resize((256, 256)), (i * 256, 20))
+        strips.append((v, strip))
+        shutil.rmtree(os.path.join(os.getenv("QAV_AVATAR_DIR", "avatars"), tmp_id), ignore_errors=True)
+
+    if strips:
+        sheet = Image.new("RGB", (strips[0][1].width, sum(s.height for _, s in strips)), "black")
+        y = 0
+        for v, s in strips:
+            sheet.paste(s, (0, y))
+            y += s.height
+        path = os.path.join(root, "bbox-shift-comparison.png")
+        sheet.save(path)
+        print(f"\ncompare the rows (top to bottom: {', '.join(str(v) for v, _ in strips)}) → {path}")
+        print("pick the value whose mouth closes fully on consonants and opens naturally on vowels,")
+        print(f"then: qav-face prepare --renderer musetalk --avatar {a.avatar} --video {a.video} --bbox-shift <value>")
     return 0
 
 
@@ -210,6 +294,23 @@ def main(argv: list[str] | None = None) -> int:
     pr.add_argument("--prompt", help="scene prompt (Live Avatar)")
     pr.add_argument("--bbox-shift", type=int, default=0)
     pr.set_defaults(fn=cmd_prepare)
+
+    c = sub.add_parser("check", help="score a candidate source clip (CPU, no GPU needed)")
+    c.add_argument("--video", required=True)
+    c.set_defaults(fn=cmd_check)
+
+    t = sub.add_parser("tune", help="render one line at several bbox_shift values and compare the mouths")
+    t.add_argument("--avatar", required=True)
+    t.add_argument("--video", required=True)
+    t.add_argument("--values", default="-7,-3,0,3,7", help="bbox_shift values to compare (MuseTalk's usable range is about -9..9)")
+    t.add_argument("--wav")
+    t.add_argument("--text", default="Peter piper picked a peck of pickled peppers. Why would we open a bank account today?")
+    t.add_argument("--seconds", type=float, default=8.0, help="seconds of source clip to prepare per value")
+    t.add_argument("--width", type=int, default=512)
+    t.add_argument("--height", type=int, default=512)
+    t.add_argument("--fps", type=float, default=25)
+    t.add_argument("--out", default="qav-selftest")
+    t.set_defaults(fn=cmd_tune)
 
     d = sub.add_parser("demo-avatars", help="prepare the demo avatars bundled with the model repos")
     d.add_argument("--only", choices=["musetalk", "liveavatar"])

@@ -8,6 +8,12 @@ dependencies = [
     "numpy>=1.23",
     "pillow>=10.0",
     "python-dotenv>=1.0",
+    # `qav-face check` scores candidate footage on a laptop, before any GPU spend.
+    # Pinned below 5.0: OpenCV 5 dropped CascadeClassifier and the bundled haar
+    # data, and the MuseTalk stack pins 4.9 anyway.
+    "opencv-python-headless>=4.9,<5",
+    # `qav-face selftest` writes an MP4 — the artifact you actually judge quality on
+    "imageio[ffmpeg]>=2.34",
 ]
 
 [project.optional-dependencies]
@@ -20,11 +26,15 @@ musetalk = [
     "diffusers==0.30.2",
     "transformers==4.39.2",
     "accelerate==0.28.0",
-    "opencv-python-headless>=4.9",
+    "opencv-python-headless>=4.9,<5",
     "librosa>=0.10",
     "einops>=0.8",
     "omegaconf",
-    "imageio[ffmpeg]",
+    # face restoration for the generated mouth — MuseTalk's own README recommends
+    # pairing it with a super-resolution model; without this the mouth stays soft
+    "gfpgan>=1.3.8",
+    "basicsr>=1.4.2",
+    "realesrgan>=0.3.0",
 ]
 # Live Avatar (Alibaba, Wan2.2-S2V-14B + LoRA). 80 GB GPU (48 GB with FP8).
 # Uses the LiveAvatar repo checkout at $LIVEAVATAR_ROOT — see Dockerfile.liveavatar.

@@ -49,11 +49,21 @@ One session per GPU. Provision with:
 ./infra/gpu/setup.sh musetalk     # driver check → docker + nvidia toolkit → build → run command
 ```
 
-Then verify the renderer on that box **before** wiring up a session:
+The face quality workflow is four commands, in order — **check** your footage
+before you rent anything, then prepare, tune and verify:
 
 ```bash
-qav-face selftest --renderer musetalk --avatar yongen --out ./out   # PNGs, contact sheet, MP4, ms/frame
+qav-face check    --video alice.mp4                       # CPU: is this footage usable at all?
+qav-face prepare  --renderer musetalk --avatar alice --video alice.mp4
+qav-face tune     --avatar alice --video alice.mp4        # compare bbox_shift values side by side
+qav-face selftest --renderer musetalk --avatar alice --out ./out
 ```
+
+`selftest` drives the real frame loop and writes an MP4 with the audio it
+lip-synced, plus mouth-sharpness, jitter and ms/frame numbers. GFPGAN mouth
+restoration and an adaptive de-flicker filter run automatically — see
+[`services/face/README.md`](services/face/README.md) for what they do and how
+to tune them.
 
 ## How a session works (mirrors Anam 1:1)
 

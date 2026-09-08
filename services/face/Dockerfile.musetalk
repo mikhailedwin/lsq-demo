@@ -29,6 +29,28 @@ RUN cd $MUSETALK_ROOT && chmod +x download_weights.sh && sed -i 's#^export HF_EN
 COPY services/face /app/face
 RUN uv pip install --system "/app/face[musetalk]"
 
+# GFPGAN sharpens the generated mouth. basicsr still imports the torchvision
+# functional_tensor module that moved in torchvision 0.17; patch the import
+# rather than pinning the whole stack backwards.
+RUN python3 - <<'PY'
+import importlib.util, pathlib, re
+spec = importlib.util.find_spec("basicsr.data.degradations")
+if spec and spec.origin:
+    p = pathlib.Path(spec.origin)
+    p.write_text(re.sub(
+        r"from torchvision\.transforms\.functional_tensor import rgb_to_grayscale",
+        "from torchvision.transforms.functional import rgb_to_grayscale",
+        p.read_text(),
+    ))
+    print("patched", p)
+PY
+
+# --- face restoration weights (~350 MB) ---------------------------------------
+ENV QAV_GFPGAN_WEIGHTS=/models/gfpgan/GFPGANv1.4.pth
+RUN mkdir -p /models/gfpgan && curl -fsSL \
+      https://github.com/TencentARC/GFPGAN/releases/download/v1.3.0/GFPGANv1.4.pth \
+      -o $QAV_GFPGAN_WEIGHTS
+
 ENV QAV_AVATAR_DIR=/avatars QAV_RENDERER=musetalk
 VOLUME ["/avatars"]
 WORKDIR /app/face
