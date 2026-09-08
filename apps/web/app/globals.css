@@ -34,6 +34,56 @@ a {
   padding: 28px 20px 60px;
 }
 
+/* Co-branding: Lux Sanans left, Quantanite right, visible throughout the call. */
+.brandbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  padding-bottom: 18px;
+  margin-bottom: 18px;
+  border-bottom: 1px solid #262b36;
+}
+
+.brandbar-logo {
+  display: block;
+  height: 30px;
+  width: auto;
+  /* the intrinsic width/height attrs reserve space; height drives the size */
+  max-width: 42%;
+  object-fit: contain;
+}
+
+/* The Quantanite asset is a pure-black wordmark, invisible on this dark UI.
+   It is a single flat colour, so inverting gives a clean white mark. */
+.is-dark-mark {
+  filter: invert(1);
+}
+
+/* thin divider between the two marks, so they read as a pairing */
+.brandbar-x {
+  flex: 1;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, #2c3242 35%, #2c3242 65%, transparent);
+}
+
+@media (max-width: 640px) {
+  .brandbar-logo {
+    height: 22px;
+    max-width: 45%;
+  }
+  .brandbar-x {
+    display: none;
+  }
+}
+
+@media print {
+  /* a printed/exported page is light, so the black mark is correct as-is */
+  .is-dark-mark {
+    filter: none;
+  }
+}
+
 .brand {
   display: flex;
   align-items: baseline;
