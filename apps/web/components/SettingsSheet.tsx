@@ -76,7 +76,7 @@ export function SettingsSheet(p: Props) {
               Transcript
             </button>
           </div>
-          <button className="icon-btn" onClick={p.onClose} aria-label="Close settings">
+          <button className="icon-btn glass" onClick={p.onClose} aria-label="Close settings">
             <CloseIcon />
           </button>
         </header>

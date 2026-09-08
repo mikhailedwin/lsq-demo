@@ -4,6 +4,7 @@ import { createClient, QavEvent, type Message, type PersonaState, type QavClient
 import { useCallback, useEffect, useRef, useState } from "react";
 import { SettingsSheet, type Catalog } from "./SettingsSheet";
 import { GearIcon, MicIcon, MicOffIcon, SendIcon, WaveIcon } from "./icons";
+import { useAmbient } from "./useAmbient";
 
 type Phase = "idle" | "starting" | "live" | "stopping";
 type Mode = "ask" | "say";
@@ -149,10 +150,24 @@ export function QavPersona() {
   // the last thing said, shown as a caption over the video
   const caption = partial?.content ?? [...messages].reverse().find((m) => m.role === "persona")?.content ?? "";
 
+  // the page's ambient wash is sampled from the call, so the glass has
+  // something of its own to refract
+  const ambient = useAmbient(videoRef, videoPlaying);
+  useEffect(() => {
+    const s = document.documentElement.style;
+    if (!ambient) {
+      s.removeProperty("--amb-1");
+      s.removeProperty("--amb-2");
+      s.removeProperty("--amb-3");
+      return;
+    }
+    ambient.forEach((c, i) => s.setProperty(`--amb-${i + 1}`, c));
+  }, [ambient]);
+
   return (
     <div className="app">
       <button
-        className={`icon-btn floating ${sheet ? "is-hidden" : ""}`}
+        className={`icon-btn floating glass ${sheet ? "is-hidden" : ""}`}
         onClick={() => setSheet(true)}
         aria-label="Session settings"
       >
@@ -160,9 +175,10 @@ export function QavPersona() {
       </button>
 
       <div className="stage-col">
-        {/* The card is the white area: logos live in it, above the call. */}
+        {/* Content layer. The logos sit on bright frosted glass at the top of
+            the stage, where the black Quantanite mark keeps its contrast. */}
         <section className="stage">
-          <header className="stage-brand">
+          <header className="stage-brand glass-light">
             <img src="/logos/lux-sanans.png" alt="Lux Sanans" width={760} height={117} />
             <img src="/logos/quantanite.png" alt="Quantanite" width={512} height={107} />
           </header>
@@ -200,60 +216,60 @@ export function QavPersona() {
 
             {live && videoPlaying && (
               <>
-                <div className={`state-pill ${personaState}`}>
+                <div className={`state-pill glass-dark ${personaState}`}>
                   <span className="dot" />
                   {STATE_LABEL[personaState] ?? personaState}
                 </div>
-                {caption && <div className="caption">{caption}</div>}
+
+                {/* Controls float above the call on their own glass layer
+                    rather than pushing it around. */}
+                <div className="overlay-stack">
+                  {caption && <div className="caption glass-dark">{caption}</div>}
+                  <div className="cluster glass-dark">
+                    <button onClick={toggleMute}>
+                      {muted ? <MicOffIcon /> : <MicIcon />}
+                      {muted ? "Unmute" : "Mute"}
+                    </button>
+                    <button onClick={() => clientRef.current?.interruptPersona()}>
+                      <WaveIcon />
+                      Interrupt
+                    </button>
+                    <button className="is-danger" onClick={stop} disabled={busy}>
+                      End call
+                    </button>
+                  </div>
+                </div>
               </>
             )}
           </div>
         </section>
 
         {!live ? (
-          <div className="dock">
-            <button className="btn primary" onClick={start} disabled={busy}>
-              {phase === "starting" ? "Starting…" : "Start call"}
+          <button className="btn" onClick={start} disabled={busy}>
+            {phase === "starting" ? "Starting…" : "Start call"}
+          </button>
+        ) : (
+          <div className="composer glass">
+            <div className="mode" role="group" aria-label="Send mode">
+              <button className={mode === "ask" ? "is-active" : ""} onClick={() => setMode("ask")}>
+                Ask
+              </button>
+              <button className={mode === "say" ? "is-active" : ""} onClick={() => setMode("say")}>
+                Say
+              </button>
+            </div>
+            <input
+              value={talkText}
+              placeholder={mode === "ask" ? `Message ${name}…` : "Words to speak verbatim…"}
+              onChange={(e) => setTalkText(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") void send();
+              }}
+            />
+            <button className="icon-btn send" onClick={send} disabled={!talkText.trim()} aria-label="Send">
+              <SendIcon />
             </button>
           </div>
-        ) : (
-          <>
-            <div className="composer">
-              <div className="mode" role="group" aria-label="Send mode">
-                <button className={mode === "ask" ? "is-active" : ""} onClick={() => setMode("ask")}>
-                  Ask
-                </button>
-                <button className={mode === "say" ? "is-active" : ""} onClick={() => setMode("say")}>
-                  Say
-                </button>
-              </div>
-              <input
-                value={talkText}
-                placeholder={mode === "ask" ? `Message ${name}…` : "Words to speak verbatim…"}
-                onChange={(e) => setTalkText(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") void send();
-                }}
-              />
-              <button className="icon-btn send" onClick={send} disabled={!talkText.trim()} aria-label="Send">
-                <SendIcon />
-              </button>
-            </div>
-
-            <div className="dock">
-              <button className="btn ghost" onClick={toggleMute}>
-                {muted ? <MicOffIcon /> : <MicIcon />}
-                {muted ? "Unmute" : "Mute"}
-              </button>
-              <button className="btn ghost" onClick={() => clientRef.current?.interruptPersona()}>
-                <WaveIcon />
-                Interrupt
-              </button>
-              <button className="btn danger" onClick={stop} disabled={busy}>
-                End call
-              </button>
-            </div>
-          </>
         )}
 
         {error && live && <p className="inline-error">{error}</p>}
