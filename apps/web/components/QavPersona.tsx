@@ -2,15 +2,18 @@
 
 import { createClient, QavEvent, type Message, type PersonaState, type QavClient } from "@qav/js-sdk";
 import { useCallback, useEffect, useRef, useState } from "react";
-
-interface Catalog {
-  avatars: { id: string; name: string; renderer?: string; attribution?: string }[];
-  voices: { id: string; name: string; provider: string }[];
-  llms: { id: string; name: string }[];
-  personas: { id: string; name: string }[];
-}
+import { SettingsSheet, type Catalog } from "./SettingsSheet";
+import { GearIcon, MicIcon, MicOffIcon, SendIcon, WaveIcon } from "./icons";
 
 type Phase = "idle" | "starting" | "live" | "stopping";
+type Mode = "ask" | "say";
+
+const STATE_LABEL: Record<string, string> = {
+  initializing: "Connecting",
+  listening: "Listening",
+  thinking: "Thinking",
+  speaking: "Speaking",
+};
 
 export function QavPersona() {
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -27,14 +30,18 @@ export function QavPersona() {
   );
 
   const [phase, setPhase] = useState<Phase>("idle");
-  const [status, setStatus] = useState<string>("Ready");
+  const [status, setStatus] = useState("Ready");
   const [error, setError] = useState<string | null>(null);
   const [personaState, setPersonaState] = useState<PersonaState>("initializing");
   const [muted, setMuted] = useState(false);
   const [messages, setMessages] = useState<Message[]>([]);
   const [partial, setPartial] = useState<{ role: Message["role"]; content: string } | null>(null);
   const [talkText, setTalkText] = useState("");
+  const [mode, setMode] = useState<Mode>("ask");
   const [videoPlaying, setVideoPlaying] = useState(false);
+  const [aspect, setAspect] = useState(1);
+  const [sheet, setSheet] = useState(false);
+  const [sheetTab, setSheetTab] = useState<"persona" | "transcript">("persona");
 
   useEffect(() => {
     fetch("/api/catalog")
@@ -56,7 +63,7 @@ export function QavPersona() {
     setPhase("stopping");
     await c?.stopStreaming().catch(() => undefined);
     setPhase("idle");
-    setStatus("Session ended");
+    setStatus("Call ended");
     setVideoPlaying(false);
     setPersonaState("initializing");
   }, []);
@@ -79,12 +86,12 @@ export function QavPersona() {
       const client = createClient(body.sessionToken, { clientLabel: "qav-web-demo" });
       clientRef.current = client;
 
-      client.addListener(QavEvent.CONNECTION_ESTABLISHED, () => setStatus("Connected — waiting for the avatar…"));
+      client.addListener(QavEvent.CONNECTION_ESTABLISHED, () => setStatus("Waiting for the avatar…"));
       client.addListener(QavEvent.VIDEO_PLAY_STARTED, () => {
         setVideoPlaying(true);
-        setStatus("Live — say hello");
+        setStatus("");
       });
-      client.addListener(QavEvent.SESSION_READY, () => setStatus("Live — say hello"));
+      client.addListener(QavEvent.SESSION_READY, () => setStatus(""));
       client.addListener(QavEvent.PERSONA_STATE_CHANGED, setPersonaState);
       client.addListener(QavEvent.MESSAGE_HISTORY_UPDATED, (m) => {
         setMessages(m);
@@ -93,9 +100,7 @@ export function QavPersona() {
       client.addListener(QavEvent.MESSAGE_STREAM_EVENT_RECEIVED, (ev) => {
         if (!ev.final) setPartial({ role: ev.role, content: ev.content });
       });
-      client.addListener(QavEvent.MIC_PERMISSION_DENIED, () =>
-        setStatus("Mic blocked — you can still type to the persona"),
-      );
+      client.addListener(QavEvent.MIC_PERMISSION_DENIED, () => setStatus("Mic blocked — you can still type"));
       client.addListener(QavEvent.SERVER_WARNING, (msg) => console.warn("[qav]", msg));
       client.addListener(QavEvent.CONNECTION_CLOSED, (code) => {
         if (clientRef.current === client) {
@@ -111,7 +116,7 @@ export function QavPersona() {
       setPhase("live");
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
-      setStatus("Failed to start");
+      setStatus("");
       setPhase("idle");
       clientRef.current = null;
     }
@@ -126,13 +131,13 @@ export function QavPersona() {
     setMuted(s.isMuted);
   };
 
-  const send = async (mode: "talk" | "ask") => {
+  const send = async () => {
     const c = clientRef.current;
     const text = talkText.trim();
     if (!c || !text) return;
     setTalkText("");
     try {
-      if (mode === "talk") await c.talk(text);
+      if (mode === "say") await c.talk(text);
       else await c.sendUserMessage(text);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -140,121 +145,141 @@ export function QavPersona() {
   };
 
   const live = phase === "live";
+  const busy = phase === "starting" || phase === "stopping";
+  // the last thing said, shown as a caption over the video
+  const caption = partial?.content ?? [...messages].reverse().find((m) => m.role === "persona")?.content ?? "";
 
   return (
-    <div className="grid">
-      <section className="stage">
-        <div className="video-wrap">
-          <video ref={videoRef} id="qav-video" autoPlay playsInline />
-          {!videoPlaying && (
-            <div className="overlay">{phase === "idle" ? "Press Start to meet your avatar" : status}</div>
-          )}
-          {live && (
-            <div className="badge">
-              <span className={`dot ${personaState}`} />
-              {personaState}
-            </div>
-          )}
-        </div>
+    <div className="app">
+      <button
+        className={`icon-btn floating ${sheet ? "is-hidden" : ""}`}
+        onClick={() => setSheet(true)}
+        aria-label="Session settings"
+      >
+        <GearIcon />
+      </button>
 
-        <div className="controls">
-          {!live ? (
-            <button onClick={start} disabled={phase !== "idle"}>
-              {phase === "starting" ? "Starting…" : "Start"}
-            </button>
-          ) : (
-            <button className="danger" onClick={stop}>
-              End session
-            </button>
-          )}
-          <button className="secondary" onClick={toggleMute} disabled={!live}>
-            {muted ? "Unmute mic" : "Mute mic"}
-          </button>
-          <button className="secondary" onClick={() => clientRef.current?.interruptPersona()} disabled={!live}>
-            Interrupt
-          </button>
-          <span className={`status ${error ? "err" : ""}`}>{error ?? status}</span>
-        </div>
+      <div className="stage-col">
+        {/* The card is the white area: logos live in it, above the call. */}
+        <section className="stage">
+          <header className="stage-brand">
+            <img src="/logos/lux-sanans.png" alt="Lux Sanans" width={760} height={117} />
+            <img src="/logos/quantanite.png" alt="Quantanite" width={512} height={107} />
+          </header>
 
-        <div className="row">
-          <input
-            placeholder={live ? "Type something…" : "Start a session first"}
-            value={talkText}
-            disabled={!live}
-            onChange={(e) => setTalkText(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") void send("ask");
-            }}
-          />
-          <button className="secondary" disabled={!live || !talkText.trim()} onClick={() => send("ask")}>
-            Ask
-          </button>
-          <button className="secondary" disabled={!live || !talkText.trim()} onClick={() => send("talk")}>
-            Make it say this
-          </button>
-        </div>
-      </section>
+          {/* Before the call this is a short hero; once video arrives it takes the
+              stream's own aspect ratio, whatever the renderer is configured for. */}
+          <div className="viewport" style={{ aspectRatio: videoPlaying ? String(aspect) : "16 / 10" }}>
+            <video
+              ref={videoRef}
+              id="qav-video"
+              autoPlay
+              playsInline
+              onLoadedMetadata={(e) => {
+                const v = e.currentTarget;
+                if (v.videoWidth && v.videoHeight) setAspect(v.videoWidth / v.videoHeight);
+              }}
+            />
 
-      <aside className="side">
-        <div className="card">
-          <h2>Persona</h2>
-          {catalogError && <p className="empty">Catalog unavailable: {catalogError}</p>}
-          <div className="field">
-            <label>Name</label>
-            <input value={name} onChange={(e) => setName(e.target.value)} disabled={live} />
-          </div>
-          <div className="field">
-            <label>Avatar</label>
-            <select value={avatarId} onChange={(e) => setAvatarId(e.target.value)} disabled={live}>
-              {(catalog?.avatars ?? [{ id: "mt-yongen", name: "Yongen (photoreal)", renderer: "musetalk" }]).map((a) => (
-                <option key={a.id} value={a.id}>
-                  {a.name} {a.renderer && a.renderer !== "procedural" ? `— GPU: ${a.renderer}` : ""}
-                </option>
-              ))}
-            </select>
-            {catalog?.avatars.find((a) => a.id === avatarId)?.attribution && (
-              <small style={{ color: "var(--muted)" }}>{catalog.avatars.find((a) => a.id === avatarId)?.attribution}</small>
+            {!videoPlaying && (
+              <div className="placeholder">
+                {phase === "idle" && !error ? (
+                  <>
+                    <span className="orb" aria-hidden="true" />
+                    <h1>Meet {name}</h1>
+                    <p>A real-time avatar you can talk to, running on your own infrastructure.</p>
+                  </>
+                ) : (
+                  <>
+                    {busy && <span className="spinner" />}
+                    <p className={error ? "is-error" : ""}>{error ?? status}</p>
+                  </>
+                )}
+              </div>
+            )}
+
+            {live && videoPlaying && (
+              <>
+                <div className={`state-pill ${personaState}`}>
+                  <span className="dot" />
+                  {STATE_LABEL[personaState] ?? personaState}
+                </div>
+                {caption && <div className="caption">{caption}</div>}
+              </>
             )}
           </div>
-          <div className="field">
-            <label>Voice</label>
-            <select value={voiceId} onChange={(e) => setVoiceId(e.target.value)} disabled={live}>
-              {(catalog?.voices ?? [{ id: "voice-rachel", name: "Rachel", provider: "elevenlabs" }]).map((v) => (
-                <option key={v.id} value={v.id}>
-                  {v.name}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div className="field">
-            <label>Brain</label>
-            <select value={llmId} onChange={(e) => setLlmId(e.target.value)} disabled={live}>
-              {(catalog?.llms ?? [{ id: "claude-opus-5", name: "Claude Opus 5" }]).map((l) => (
-                <option key={l.id} value={l.id}>
-                  {l.name}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div className="field">
-            <label>System prompt</label>
-            <textarea value={systemPrompt} onChange={(e) => setSystemPrompt(e.target.value)} disabled={live} />
-          </div>
-        </div>
+        </section>
 
-        <div className="card">
-          <h2>Transcript</h2>
-          <div className="transcript">
-            {messages.length === 0 && !partial && <p className="empty">Nothing yet — start talking.</p>}
-            {messages.map((m) => (
-              <div key={m.id} className={`msg ${m.role}`}>
-                {m.content}
-              </div>
-            ))}
-            {partial && <div className={`msg ${partial.role} partial`}>{partial.content}</div>}
+        {!live ? (
+          <div className="dock">
+            <button className="btn primary" onClick={start} disabled={busy}>
+              {phase === "starting" ? "Starting…" : "Start call"}
+            </button>
           </div>
-        </div>
-      </aside>
+        ) : (
+          <>
+            <div className="composer">
+              <div className="mode" role="group" aria-label="Send mode">
+                <button className={mode === "ask" ? "is-active" : ""} onClick={() => setMode("ask")}>
+                  Ask
+                </button>
+                <button className={mode === "say" ? "is-active" : ""} onClick={() => setMode("say")}>
+                  Say
+                </button>
+              </div>
+              <input
+                value={talkText}
+                placeholder={mode === "ask" ? `Message ${name}…` : "Words to speak verbatim…"}
+                onChange={(e) => setTalkText(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") void send();
+                }}
+              />
+              <button className="icon-btn send" onClick={send} disabled={!talkText.trim()} aria-label="Send">
+                <SendIcon />
+              </button>
+            </div>
+
+            <div className="dock">
+              <button className="btn ghost" onClick={toggleMute}>
+                {muted ? <MicOffIcon /> : <MicIcon />}
+                {muted ? "Unmute" : "Mute"}
+              </button>
+              <button className="btn ghost" onClick={() => clientRef.current?.interruptPersona()}>
+                <WaveIcon />
+                Interrupt
+              </button>
+              <button className="btn danger" onClick={stop} disabled={busy}>
+                End call
+              </button>
+            </div>
+          </>
+        )}
+
+        {error && live && <p className="inline-error">{error}</p>}
+      </div>
+
+      <SettingsSheet
+        open={sheet}
+        onClose={() => setSheet(false)}
+        tab={sheetTab}
+        onTab={setSheetTab}
+        locked={live || busy}
+        catalog={catalog}
+        catalogError={catalogError}
+        name={name}
+        onName={setName}
+        avatarId={avatarId}
+        onAvatar={setAvatarId}
+        voiceId={voiceId}
+        onVoice={setVoiceId}
+        llmId={llmId}
+        onLlm={setLlmId}
+        systemPrompt={systemPrompt}
+        onSystemPrompt={setSystemPrompt}
+        messages={messages}
+        partial={partial}
+      />
     </div>
   );
 }
