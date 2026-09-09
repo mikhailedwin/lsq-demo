@@ -12,7 +12,7 @@ export interface SessionTokenClaims {
 }
 
 /**
- * Session tokens are the browser-facing credential (Anam tier 2): short-lived,
+ * Session tokens are the browser-facing credential: short-lived,
  * bound to one session record, useless for anything but starting that session.
  */
 export async function signSessionToken(sessionId: string, ttlSeconds: number): Promise<string> {

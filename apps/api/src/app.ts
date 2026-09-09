@@ -218,7 +218,7 @@ export function createApp(store: Store) {
   });
 
   /**
-   * Start the live session. Mirrors Anam's `POST /v1/engine/session`:
+   * Start the live session (`POST /v1/engine/session`):
    * creates the LiveKit room, dispatches the engine (which brings the face
    * renderer with it), and returns the browser's LiveKit credentials.
    */

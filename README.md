@@ -1,10 +1,9 @@
 # QAV — real-time AI avatars over WebRTC
 
-QAV is a self-hosted re-implementation of the [Anam AI](https://anam.ai) stack:
-a **persona** (face + voice + LLM + prompt) that holds a live, face-to-face
-conversation in the browser. Same architecture, same API shapes, same SDK
-surface — but every piece runs on infrastructure you control, and the face is a
-pluggable model rather than a proprietary black box.
+QAV is a self-hosted stack for real-time conversational avatars: a **persona**
+(face + voice + LLM + prompt) that holds a live, face-to-face conversation in
+the browser. Every piece runs on infrastructure you control, and the face is a
+pluggable open model rather than a hosted black box.
 
 ```
 Browser  ──WebRTC──▶  LiveKit SFU  ◀──WebRTC──  QAV engine (Python)
@@ -20,8 +19,8 @@ Your backend
 
 ## The face
 
-The only genuinely proprietary part of Anam is the neural face model. QAV puts
-three open ones behind a single interface, chosen per avatar:
+The hard part of a stack like this is the neural face model. QAV puts three
+open ones behind a single interface, chosen per avatar:
 
 | Renderer | Look | Needs | Upstream (license) |
 |---|---|---|---|
@@ -65,26 +64,27 @@ restoration and an adaptive de-flicker filter run automatically — see
 [`services/face/README.md`](services/face/README.md) for what they do and how
 to tune them.
 
-## How a session works (mirrors Anam 1:1)
+## How a session works
 
-| Step | Anam | QAV |
-|---|---|---|
-| 1. Your server mints a short-lived token | `POST /v1/auth/session-token` with API key | same path, same body (`personaConfig` / `personaId`) |
-| 2. Browser starts the session | `createClient(token).streamToVideoElement(id)` → `POST /v1/engine/session` | identical — the SDK does it for you |
-| 3. Engine joins | Anam cloud joins the room with a face worker | `qav-engine` joins; it dispatches `qav-face` for GPU avatars, or renders the CPU face itself |
-| 4. Media | Avatar publishes video+audio, subscribes to your mic | identical; the face publishes *on behalf of* the engine, so clients see one participant |
-| 5. Transcripts / state | `MESSAGE_HISTORY_UPDATED`, talk commands | same events, same `talk()` / `sendUserMessage()` |
+| Step | What happens |
+|---|---|
+| 1. Your server mints a token | `POST /v1/auth/session-token` with your API key and a `personaConfig` (or a saved `personaId`) → a short-lived session token |
+| 2. Browser starts the session | `createClient(token).streamToVideoElement(id)`; the SDK calls `POST /v1/engine/session` for you |
+| 3. Engine joins | `qav-engine` joins the room, then dispatches `qav-face` for GPU avatars or renders the CPU face itself |
+| 4. Media | The face publishes video and audio *on behalf of* the engine, so clients see one participant, and subscribes to your mic |
+| 5. Transcripts / state | `MESSAGE_HISTORY_UPDATED` and `PERSONA_STATE_CHANGED` events; `talk()` and `sendUserMessage()` to drive it |
 
-Anam's own LiveKit plugin (`livekit-plugins-anam`) uses exactly this shape — a
-second participant publishing on behalf of the agent, fed the agent's TTS audio
-over a data stream — so QAV's `AvatarSession` is a drop-in for it.
+The face running as a second participant that publishes on behalf of the agent
+— fed the agent's TTS audio over a LiveKit data stream — is the standard
+LiveKit Agents avatar pattern, so `AvatarSession` slots in wherever that shape
+is expected.
 
 ## Repository layout
 
 ```
 apps/api/            QAV control plane (Hono, TypeScript)   — personas, tokens, sessions, dispatch
 apps/web/            Demo (Next.js)                          — persona picker, video, transcript
-packages/js-sdk/     @qav/js-sdk (browser)                   — Anam-shaped client on livekit-client
+packages/js-sdk/     @qav/js-sdk (browser)                   — browser client on livekit-client
 services/engine/     qav-engine (Python, LiveKit Agents)     — STT→LLM→TTS pipeline, RPC, avatar session
 services/face/       qav-face (Python)                       — face backends + the GPU worker
 infra/livekit/       livekit-server config for local dev
@@ -163,7 +163,7 @@ Session-token routes (what the SDK calls): `POST /v1/engine/session`,
 
 `environment: { livekitUrl, livekitToken }` in the token request is the
 "bring your own LiveKit" mode: your own voice agent runs the conversation and
-QAV only supplies the face — the same shape Anam's LiveKit plugin sends.
+QAV only supplies the face, joining the room you nominate.
 
 ## Tests
 

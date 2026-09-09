@@ -56,6 +56,7 @@ export class QavClient extends TypedEmitter {
   private micPublication: LocalTrackPublication | null = null;
   private inputMuted = false;
   private messages: Message[] = [];
+  private localSeq = 0;
   private personaState: PersonaState = "initializing";
   private closed = false;
   private sessionReadyFired = false;
@@ -190,6 +191,23 @@ export class QavClient extends TypedEmitter {
   /** Inject a user message as if it had been spoken; the persona replies. */
   async sendUserMessage(text: string): Promise<void> {
     await this.rpc(RPC_USER_MESSAGE, { text });
+    // Show it straight away. A typed turn only reaches the transcript as a text
+    // stream when a real LLM is driving the reply; with an echo/mock brain the
+    // engine never creates a user turn at all, so without this the message
+    // vanishes and typing looks broken. Any stream that does arrive for the
+    // same text is folded into this entry rather than duplicating it.
+    this.addLocalUserMessage(text);
+  }
+
+  private addLocalUserMessage(text: string): void {
+    this.messages.push({
+      id: `local-${++this.localSeq}`,
+      role: "user",
+      content: text,
+      final: true,
+      createdAt: Date.now(),
+    });
+    this.emit(QavEvent.MESSAGE_HISTORY_UPDATED, this.getMessageHistory());
   }
 
   /** Cut the persona off mid-sentence. */
@@ -441,6 +459,8 @@ export class QavClient extends TypedEmitter {
       msg = { id, role, content: "", final: false, createdAt: Date.now() };
       this.messages.push(msg);
     }
+    // Adopt a locally-echoed turn rather than showing the same words twice.
+    const echoed = role === "user" ? this.messages.find((m) => m.id.startsWith("local-")) : undefined;
     let text = "";
     try {
       for await (const chunk of reader) {
@@ -458,6 +478,9 @@ export class QavClient extends TypedEmitter {
     if (!msg.content.trim()) {
       this.messages = this.messages.filter((m) => m.id !== id);
       return;
+    }
+    if (echoed && echoed.content.trim() === text.trim()) {
+      this.messages = this.messages.filter((m) => m.id !== echoed.id);
     }
     this.emit(QavEvent.MESSAGE_STREAM_EVENT_RECEIVED, { id, role, content: text, final: true });
     this.emit(QavEvent.MESSAGE_HISTORY_UPDATED, this.getMessageHistory());

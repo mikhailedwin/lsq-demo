@@ -2,7 +2,7 @@
   "name": "qav",
   "private": true,
   "version": "0.1.0",
-  "description": "QAV — real-time conversational AI avatars over WebRTC (self-hosted Anam-style stack)",
+  "description": "QAV — real-time conversational AI avatars over WebRTC (self-hosted)",
   "packageManager": "pnpm@10.33.0",
   "engines": {
     "node": ">=20"

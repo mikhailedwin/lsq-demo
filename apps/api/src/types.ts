@@ -20,7 +20,7 @@ export const AvatarSchema = z.object({
   name: z.string(),
   /** Face model that renders this avatar. `procedural` runs on CPU inside the engine; the others need the qav-face GPU worker. */
   renderer: AvatarRendererSchema.default("procedural"),
-  /** Kept for Anam-shaped clients that send `avatarModel`; informational. */
+  /** Informational: clients may send `avatarModel` alongside `avatarId`. */
   model: z.string().default("qav-face-1"),
   /** Palette for the procedural face. */
   style: AvatarStyleSchema.optional(),
@@ -51,7 +51,7 @@ export const LlmSchema = z.object({
 });
 export type Llm = z.infer<typeof LlmSchema>;
 
-/** Mirrors Anam's `personaConfig` shape so integrations port 1:1. */
+/** The inline persona definition a session token can carry. */
 export const PersonaConfigSchema = z.object({
   type: z.enum(["ephemeral", "stateful"]).optional(),
   name: z.string().min(1).max(120),
@@ -88,7 +88,7 @@ export const CreateSessionTokenSchema = z.object({
   sessionOptions: SessionOptionsSchema.optional(),
   /** Seconds. Defaults to QAV_SESSION_TTL_SECONDS. */
   expiresIn: z.number().int().min(60).max(86_400).optional(),
-  /** Bring-your-own LiveKit (like Anam's `environment`): renderer joins your room instead. */
+  /** Bring-your-own LiveKit: the renderer joins the room you nominate instead. */
   environment: z
     .object({
       livekitUrl: z.string().url(),

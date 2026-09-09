@@ -2,8 +2,9 @@
 
 import { createClient, QavEvent, type Message, type PersonaState, type QavClient } from "@qav/js-sdk";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { ChatRail } from "./ChatRail";
 import { SettingsSheet, type Catalog } from "./SettingsSheet";
-import { GearIcon, MicIcon, MicOffIcon, SendIcon, WaveIcon } from "./icons";
+import { ChatIcon, GearIcon, MicIcon, MicOffIcon, SendIcon, WaveIcon } from "./icons";
 import { useAmbient } from "./useAmbient";
 
 type Phase = "idle" | "starting" | "live" | "stopping";
@@ -43,6 +44,8 @@ export function QavPersona() {
   const [aspect, setAspect] = useState(1);
   const [sheet, setSheet] = useState(false);
   const [sheetTab, setSheetTab] = useState<"persona" | "transcript">("persona");
+  // conversation rail: open by default, collapsible to give the face the screen
+  const [rail, setRail] = useState(true);
 
   useEffect(() => {
     fetch("/api/catalog")
@@ -147,8 +150,16 @@ export function QavPersona() {
 
   const live = phase === "live";
   const busy = phase === "starting" || phase === "stopping";
-  // the last thing said, shown as a caption over the video
-  const caption = partial?.content ?? [...messages].reverse().find((m) => m.role === "persona")?.content ?? "";
+
+  // Caption over the video. With the rail open it shows only what the persona
+  // says, because your own messages are already visible beside the call. With
+  // the rail collapsed it shows the latest turn either way — otherwise typing
+  // would produce no visible response until the reply began.
+  const lastPersona = [...messages].reverse().find((m) => m.role === "persona");
+  const lastAny = messages[messages.length - 1];
+  const captionMsg = partial ?? (rail ? lastPersona : lastAny);
+  const caption = captionMsg?.content ?? "";
+  const captionIsUser = captionMsg?.role === "user";
 
   // the page's ambient wash is sampled from the call, so the glass has
   // something of its own to refract
@@ -166,15 +177,24 @@ export function QavPersona() {
 
   return (
     <div className="app">
-      <button
-        className={`icon-btn floating glass ${sheet ? "is-hidden" : ""}`}
-        onClick={() => setSheet(true)}
-        aria-label="Session settings"
-      >
-        <GearIcon />
-      </button>
+      <div className={`float-controls ${sheet ? "is-hidden" : ""}`}>
+        {live && (
+          <button
+            className={`icon-btn glass ${rail ? "is-on" : ""}`}
+            onClick={() => setRail((v) => !v)}
+            aria-label={rail ? "Hide conversation" : "Show conversation"}
+            aria-pressed={rail}
+          >
+            <ChatIcon />
+          </button>
+        )}
+        <button className="icon-btn glass" onClick={() => setSheet(true)} aria-label="Session settings">
+          <GearIcon />
+        </button>
+      </div>
 
-      <div className="stage-col">
+      <div className="workspace">
+        <div className="stage-col">
         {/* Content layer. The logos sit on bright frosted glass at the top of
             the stage, where the black Quantanite mark keeps its contrast. */}
         <section className="stage">
@@ -224,15 +244,20 @@ export function QavPersona() {
                 {/* Controls float above the call on their own glass layer
                     rather than pushing it around. */}
                 <div className="overlay-stack">
-                  {caption && <div className="caption glass-dark">{caption}</div>}
+                  {caption && (
+                    <div className={`caption glass-dark ${captionIsUser ? "is-user" : ""}`}>
+                      {captionIsUser && <span className="caption-who">You</span>}
+                      {caption}
+                    </div>
+                  )}
                   <div className="cluster glass-dark">
-                    <button onClick={toggleMute}>
+                    <button onClick={toggleMute} aria-label={muted ? "Unmute" : "Mute"}>
                       {muted ? <MicOffIcon /> : <MicIcon />}
-                      {muted ? "Unmute" : "Mute"}
+                      <span className="btn-label">{muted ? "Unmute" : "Mute"}</span>
                     </button>
-                    <button onClick={() => clientRef.current?.interruptPersona()}>
+                    <button onClick={() => clientRef.current?.interruptPersona()} aria-label="Interrupt">
                       <WaveIcon />
-                      Interrupt
+                      <span className="btn-label">Interrupt</span>
                     </button>
                     <button className="is-danger" onClick={stop} disabled={busy}>
                       End call
@@ -272,7 +297,10 @@ export function QavPersona() {
           </div>
         )}
 
-        {error && live && <p className="inline-error">{error}</p>}
+          {error && live && <p className="inline-error">{error}</p>}
+        </div>
+
+        {live && <ChatRail open={rail} onClose={() => setRail(false)} personaName={name} messages={messages} partial={partial} />}
       </div>
 
       <SettingsSheet

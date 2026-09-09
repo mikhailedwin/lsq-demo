@@ -145,20 +145,133 @@ textarea {
 
 /* ------------------------------------------------------------------ layout */
 
+/* Flex, not grid with place-items: an auto-sized grid column takes max-content,
+   so `width: 100%` on the workspace resolved against a column wider than the
+   padded content box and pushed the whole layout off the right edge on a
+   phone. Flex sizes children to the space that actually exists. */
 .app {
   min-height: 100vh;
-  display: grid;
-  place-items: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
   padding: 40px 24px 52px;
+}
+
+/* Stage and conversation sit side by side and centre as a pair, so collapsing
+   the rail re-centres the call rather than leaving it hanging left. */
+.workspace {
+  display: flex;
+  align-items: stretch;
+  justify-content: center;
+  gap: 18px;
+  width: 100%;
 }
 
 .stage-col {
   width: 100%;
-  max-width: 640px;
+  max-width: min(640px, 100%);
+  min-width: 0;
   display: flex;
   flex-direction: column;
   align-items: center;
   gap: 18px;
+}
+
+/* -------------------------------------------------------- conversation rail */
+
+.rail {
+  width: 0;
+  opacity: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  border-radius: var(--r-stage);
+  background: rgba(255, 255, 255, 0.4);
+  backdrop-filter: blur(30px) saturate(180%);
+  -webkit-backdrop-filter: blur(30px) saturate(180%);
+  border: 0.5px solid rgba(255, 255, 255, 0.55);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.8),
+    0 24px 70px rgba(24, 39, 75, 0.16);
+  transition:
+    width 0.44s var(--ease-out),
+    opacity 0.3s var(--ease),
+    transform 0.44s var(--ease-out);
+  transform: translateX(12px);
+  pointer-events: none;
+}
+.rail.is-open {
+  width: 330px;
+  opacity: 1;
+  transform: translateX(0);
+  pointer-events: auto;
+}
+
+.rail-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 16px 12px 12px 20px;
+}
+.rail-head h2 {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: -0.012em;
+}
+.rail-close {
+  width: 32px;
+  height: 32px;
+  background: rgba(120, 130, 160, 0.14);
+}
+.rail-close:hover {
+  background: rgba(120, 130, 160, 0.22);
+}
+
+.rail-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 4px 16px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.rail-empty {
+  margin: auto 0;
+  color: var(--ink-3);
+  font-size: 14px;
+  line-height: 1.5;
+  text-align: center;
+  padding: 0 8px;
+}
+
+/* the floating controls cluster (conversation toggle + settings) */
+.float-controls {
+  position: fixed;
+  top: 24px;
+  right: 24px;
+  z-index: 20;
+  display: flex;
+  gap: 8px;
+  transition:
+    opacity 0.3s var(--ease),
+    transform 0.3s var(--ease);
+}
+.float-controls.is-hidden {
+  opacity: 0;
+  pointer-events: none;
+  transform: scale(0.9);
+}
+.icon-btn.is-on {
+  background: rgba(10, 132, 255, 0.92);
+  color: #fff;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.4),
+    0 4px 14px rgba(0, 90, 200, 0.3);
 }
 
 /* --------------------------------------------------------------- the stage */
@@ -362,6 +475,20 @@ textarea {
   }
 }
 
+/* your own line, shown only while the rail is collapsed */
+.caption.is-user {
+  background: rgba(10, 132, 255, 0.42);
+}
+.caption-who {
+  display: inline-block;
+  margin-right: 8px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  opacity: 0.75;
+}
+
 /* control cluster — one capsule of glass, buttons carved into it */
 .cluster {
   display: inline-flex;
@@ -517,17 +644,6 @@ textarea {
   cursor: default;
 }
 
-.icon-btn.floating {
-  position: fixed;
-  top: 24px;
-  right: 24px;
-  z-index: 20;
-}
-.icon-btn.floating.is-hidden {
-  opacity: 0;
-  pointer-events: none;
-  transform: scale(0.9);
-}
 
 .composer .send {
   width: 36px;
@@ -752,9 +868,50 @@ textarea {
 
 /* ------------------------------------------------------------- adaptations */
 
+/* Not enough room for stage and rail side by side: the call keeps the space
+   and the conversation stays available in the settings sheet's Transcript tab.
+   The rail is removed from the flow entirely — left in place at width 0 it
+   still earns the workspace's column gap and pushes the stage off-centre. */
+@media (max-width: 1060px) {
+  .rail {
+    display: none;
+  }
+  .workspace {
+    gap: 0;
+  }
+}
+
 @media (max-width: 560px) {
   .app {
     padding: 16px 12px 28px;
+  }
+  .float-controls {
+    top: 14px;
+    right: 14px;
+  }
+
+  /* A phone's video is small: the controls should not eat a third of the face.
+     Mute and Interrupt reduce to their icons; End call keeps its label because
+     it is the one action you must not mis-tap. */
+  .cluster button {
+    padding: 10px 13px;
+  }
+  .cluster button .btn-label {
+    display: none;
+  }
+  .cluster button.is-danger {
+    padding: 10px 18px;
+  }
+  .caption {
+    -webkit-line-clamp: 2;
+    font-size: 14px;
+    padding: 9px 13px;
+  }
+  .overlay-stack {
+    left: 10px;
+    right: 10px;
+    bottom: 10px;
+    gap: 8px;
   }
   .stage-brand {
     padding: 14px 18px;

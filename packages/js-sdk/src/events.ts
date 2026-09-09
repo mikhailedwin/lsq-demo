@@ -1,5 +1,5 @@
 /**
- * Event names intentionally match Anam's `AnamEvent` so integrations port by
+ * Event names are stable strings so integrations can switch on them by
  * swapping the import. Payloads are documented on {@link QavEventMap}.
  */
 export enum QavEvent {

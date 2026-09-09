@@ -1,6 +1,6 @@
 """Live Avatar backend — Alibaba's Wan2.2-S2V-14B + Live-Avatar LoRA (Apache-2.0).
 
-EXPERIMENTAL. This is the Anam-tier quality option: a 14B video-diffusion model
+EXPERIMENTAL. This is the highest-quality option: a 14B video-diffusion model
 that generates the whole face from one reference image. Hardware reality:
 
 * the authors' 45 fps figure is a 5×H800 pipeline; single-GPU mode needs an

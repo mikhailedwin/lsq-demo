@@ -44,6 +44,13 @@ export const SendIcon = () => (
   </svg>
 );
 
+export const ChatIcon = () => (
+  <svg {...base} width="19" height="19">
+    <path d="M20.5 11.5a7.5 7.5 0 0 1-7.5 7.5H8l-4 2.5V19a7.5 7.5 0 0 1 4-14h1a7.5 7.5 0 0 1 7.5 6.5Z" />
+    <path d="M8.5 11.5h7M8.5 8h5" />
+  </svg>
+);
+
 export const WaveIcon = () => (
   <svg {...base} width="19" height="19">
     <path d="M4 10v4M8 7v10M12 4.5v15M16 8v8M20 10.5v3" />

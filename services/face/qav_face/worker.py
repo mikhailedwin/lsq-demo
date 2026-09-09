@@ -5,8 +5,8 @@
 Dispatched by the engine (explicit dispatch, agent_name = "qav-face") with the
 avatar spec as job metadata. It joins as ``qav-avatar``, publishing on behalf
 of the engine participant, receives the engine's TTS audio over a LiveKit
-data stream, and publishes AV-synced video — the same contract Anam's hosted
-face worker fulfils for `livekit-plugins-anam`.
+data stream, and publishes AV-synced video — the standard LiveKit Agents
+avatar-worker contract.
 """
 
 from __future__ import annotations

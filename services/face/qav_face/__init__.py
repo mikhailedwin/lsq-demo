@@ -10,7 +10,7 @@ two interfaces:
 
 The engine runs a backend in-process for the CPU placeholder; GPU backends
 run in the ``qav-face`` worker (:mod:`qav_face.worker`) that joins the room
-as a second participant, exactly like Anam's hosted face worker.
+as a second participant.
 """
 
 __version__ = "0.1.0"

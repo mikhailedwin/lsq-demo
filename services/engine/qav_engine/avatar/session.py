@@ -1,12 +1,13 @@
-"""QAV's counterpart to `livekit.plugins.anam.AvatarSession`.
+"""Where the persona's face is rendered, and how its audio gets there.
 
-Anam's plugin asks Anam's cloud to send a face worker into the room and routes
-the agent's TTS audio to it over a data stream. Ours has two modes:
+A hosted avatar plugin would ask a vendor's cloud to send a face worker into
+the room and route the agent's TTS audio to it over a data stream. Ours has
+two modes:
 
 * ``local``  — the CPU placeholder face runs inside the engine process, on a
   second Room connection (``qav-avatar``) that publishes on behalf of the engine.
 * ``remote`` — dispatch the ``qav-face`` GPU worker into the room and stream the
-  audio to it (``DataStreamAudioOutput``), exactly the Anam-plugin shape.
+  audio to it (``DataStreamAudioOutput``).
 
 Which one is used follows the avatar: neural renderers are always remote.
 """
