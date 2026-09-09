@@ -42,11 +42,11 @@ avatar in the demo once you have a GPU. Details, the backend interface and the
 | `liveavatar` | 1× H100 80 GB — AWS `p5.48xlarge` slice, or a single-GPU cloud | ~$3–4 | single-GPU mode; measure before trusting it in real time |
 | `liveavatar` | 1× A100/L40S 48 GB with `QAV_LIVEAVATAR_FP8=1` | ~$1.5–2.5 | slight quality loss |
 
-One session per GPU. Provision with:
-
-```bash
-./infra/gpu/setup.sh musetalk     # driver check → docker + nvidia toolkit → build → run command
-```
+One session per GPU. **[`infra/gpu/RUNBOOK.md`](infra/gpu/RUNBOOK.md) is the
+step-by-step**: which provider to rent from, how to keep weights on a network
+volume, and how to verify quality before a demo. On a machine you already have,
+`./infra/gpu/setup.sh musetalk` does the driver check, Docker + NVIDIA toolkit,
+build and run command in one go.
 
 The face quality workflow is four commands, in order — **check** your footage
 before you rent anything, then prepare, tune and verify:
