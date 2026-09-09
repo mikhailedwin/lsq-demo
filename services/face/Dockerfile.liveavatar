@@ -1,0 +1,34 @@
+# QAV face worker with the Live Avatar backend (Wan2.2-S2V-14B + Live-Avatar LoRA).
+# Needs: one 80 GB NVIDIA GPU (H100/H200/A100-80G), or 48 GB with QAV_LIVEAVATAR_FP8=1.
+#   docker build -f services/face/Dockerfile.liveavatar -t qav-face:liveavatar .
+#   docker run --gpus all --network host --env-file .env -v qav-ckpt:/ckpt -v qav-avatars:/avatars qav-face:liveavatar
+# Weights (~35 GB) are downloaded into the /ckpt volume on first start, not baked into the image.
+FROM nvidia/cuda:12.8.1-cudnn-devel-ubuntu22.04
+
+ENV DEBIAN_FRONTEND=noninteractive PYTHONUNBUFFERED=1 PIP_NO_CACHE_DIR=1
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      python3.10 python3.10-venv python3.10-dev python3-pip git ffmpeg libgl1 libglib2.0-0 curl build-essential ninja-build \
+    && rm -rf /var/lib/apt/lists/*
+RUN python3 -m pip install --upgrade pip uv
+
+# --- LiveAvatar (Apache-2.0) pinned -----------------------------------------------
+ARG LIVEAVATAR_COMMIT=c3c47d031d8bf3247428333c1fe610579c71a551
+ENV LIVEAVATAR_ROOT=/opt/liveavatar LIVEAVATAR_CKPT=/ckpt/Wan2.2-S2V-14B LIVEAVATAR_LORA=/ckpt/LiveAvatar
+RUN git clone https://github.com/Alibaba-Quark/LiveAvatar.git $LIVEAVATAR_ROOT \
+    && cd $LIVEAVATAR_ROOT && git checkout $LIVEAVATAR_COMMIT
+
+# torch 2.8 / cu128 as upstream; FlashAttention 2 (FA3 only on Hopper — swap per upstream README)
+RUN uv pip install --system torch==2.8.0 torchvision==0.23.0 --index-url https://download.pytorch.org/whl/cu128 \
+    && uv pip install --system flash-attn==2.8.3 --no-build-isolation \
+    && uv pip install --system -r $LIVEAVATAR_ROOT/requirements.txt "huggingface_hub[cli]"
+
+# --- QAV face package ---------------------------------------------------------------
+COPY services/face /app/face
+RUN uv pip install --system "/app/face[liveavatar]"
+
+ENV QAV_AVATAR_DIR=/avatars QAV_RENDERER=liveavatar QAV_LIVEAVATAR_SIZE=704*384
+VOLUME ["/ckpt", "/avatars"]
+WORKDIR /app/face
+COPY services/face/scripts/liveavatar-entrypoint.sh /usr/local/bin/liveavatar-entrypoint
+RUN chmod +x /usr/local/bin/liveavatar-entrypoint
+CMD ["liveavatar-entrypoint"]

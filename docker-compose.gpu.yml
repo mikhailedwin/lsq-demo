@@ -1,0 +1,47 @@
+# GPU face worker, layered on top of docker-compose.yml:
+#   docker compose -f docker-compose.yml -f docker-compose.gpu.yml --profile musetalk up
+#   docker compose -f docker-compose.yml -f docker-compose.gpu.yml --profile liveavatar up
+# Requires the NVIDIA container toolkit (see infra/gpu/setup.sh).
+services:
+  face-musetalk:
+    profiles: ["musetalk"]
+    build:
+      context: .
+      dockerfile: services/face/Dockerfile.musetalk
+    env_file: .env
+    environment:
+      LIVEKIT_URL: ${LIVEKIT_URL:-ws://localhost:7880}
+      QAV_RENDERER: musetalk
+    network_mode: host
+    volumes:
+      - qav-avatars:/avatars
+    deploy:
+      resources:
+        reservations:
+          devices: [{ driver: nvidia, count: 1, capabilities: [gpu] }]
+    depends_on: [livekit]
+
+  face-liveavatar:
+    profiles: ["liveavatar"]
+    build:
+      context: .
+      dockerfile: services/face/Dockerfile.liveavatar
+    env_file: .env
+    environment:
+      LIVEKIT_URL: ${LIVEKIT_URL:-ws://localhost:7880}
+      QAV_RENDERER: liveavatar
+      QAV_LIVEAVATAR_FP8: ${QAV_LIVEAVATAR_FP8:-0}
+    network_mode: host
+    volumes:
+      - qav-avatars:/avatars
+      - qav-ckpt:/ckpt
+    shm_size: "16gb"
+    deploy:
+      resources:
+        reservations:
+          devices: [{ driver: nvidia, count: 1, capabilities: [gpu] }]
+    depends_on: [livekit]
+
+volumes:
+  qav-avatars:
+  qav-ckpt:
