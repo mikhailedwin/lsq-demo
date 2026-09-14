@@ -69,12 +69,15 @@ dispatches the face worker rather than rendering in-process.
 
 [vercel.com](https://vercel.com) → Add New → Project → this repo.
 
-- **Root Directory**: leave it as the repo root (`./`). Vercel reads
-  `vercel.json` from the Root Directory *only*, so a config inside `apps/web`
-  is invisible unless you also change this setting — root is the simpler half
-  of that trade.
-- **Framework**: Next.js — `vercel.json` sets the build and output paths
-  (`apps/web/.next`), so the pnpm workspace resolves without extra settings.
+- **Root Directory**: **`apps/web`** — this is not optional. Vercel's Next.js
+  builder looks for `next` in the package.json *at the Root Directory*, and the
+  repo root has no dependencies at all, so pointing it at `./` fails with
+  "No Next.js version detected". `apps/web/vercel.json` is read from there too.
+- **Framework**: Next.js (detected).
+
+`buildCommand` builds `@qav/js-sdk` before the web app, because the web app
+imports it from `dist/` and a fresh clone has no `dist/`. `pnpm --filter` walks
+up to find the workspace root on its own, so nothing needs to `cd`.
 
 Environment variables:
 
