@@ -60,8 +60,14 @@ gives this service — the web app needs it.
 | Build | `pip install uv && uv pip install --system ./services/face ./services/engine` |
 | Start | `python -m qav_engine.worker start` |
 
-Same `LIVEKIT_*` and provider keys. Add `QAV_FACE_MODE=remote` so it always
-dispatches the face worker rather than rendering in-process.
+Same `LIVEKIT_*` and provider keys. It needs nothing from service A — the
+persona arrives in the LiveKit job metadata, so the engine never calls the API.
+
+Leave `QAV_FACE_MODE` **unset**. The default (`auto`) decides per avatar: the
+CPU placeholder renders in-process on Railway, and `musetalk` / `liveavatar`
+dispatch to the GPU worker. Forcing `remote` would send the placeholder to a
+worker too, so a demo without a running pod would fail instead of falling back
+to the CPU face.
 
 ---
 
