@@ -1,10 +1,9 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "framework": "nextjs",
-  "buildCommand": "cd ../.. && pnpm install --frozen-lockfile && pnpm --filter @qav/js-sdk build && pnpm --filter @qav/web build",
-  "installCommand": "echo 'install handled by buildCommand (pnpm workspace)'",
-  "outputDirectory": ".next",
-  "regions": ["lhr1"],
+  "installCommand": "pnpm install --frozen-lockfile",
+  "buildCommand": "pnpm --filter @qav/js-sdk build && pnpm --filter @qav/web build",
+  "outputDirectory": "apps/web/.next",
   "headers": [
     {
       "source": "/(.*)",
@@ -16,7 +15,6 @@
       ]
     },
     {
-      "comment": "Never let a CDN or browser cache a gated response.",
       "source": "/api/(.*)",
       "headers": [{ "key": "Cache-Control", "value": "no-store, max-age=0" }]
     }
