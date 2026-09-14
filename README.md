@@ -94,7 +94,26 @@ docker-compose.yml   livekit + api + engine   (+ docker-compose.gpu.yml for the 
 
 ## Quickstart (local, no GPU, no API keys)
 
-Prereqs: Node 20+, pnpm, Python 3.10+, [uv](https://docs.astral.sh/uv/), Docker.
+Prereqs: Node 20+, [pnpm](https://pnpm.io), Python 3.10+, [uv](https://docs.astral.sh/uv/),
+and either Docker or the `livekit-server` binary (`brew install livekit`).
+
+```bash
+git clone https://github.com/mikhailedwin/lsq-demo.git && cd lsq-demo
+./scripts/dev.sh
+```
+
+That's it — open **http://localhost:3000**, allow the microphone, press
+**Start call**. The script writes a `.env` running the offline mocks (no vendor
+keys), installs dependencies, starts LiveKit, the API, the engine, the face
+worker and the web app, waits until each is answering, and stops everything on
+Ctrl-C. Logs land in `.dev-logs/`.
+
+Without a GPU, open Settings (the gear, top right) and pick an avatar marked
+**(placeholder, CPU)**. The photoreal ones need the GPU face worker — see
+[`infra/gpu/RUNBOOK.md`](infra/gpu/RUNBOOK.md).
+
+<details>
+<summary>Starting the pieces by hand instead</summary>
 
 ```bash
 cp .env.example .env            # set QAV_STT/QAV_LLM/QAV_TTS to `mock` to skip vendor keys
@@ -106,13 +125,12 @@ pnpm dev:api                    # 2. control plane  → http://localhost:8787
 cd services/face  && uv venv && uv pip install -e ".[dev]"   # 3. face package
 cd ../engine      && uv venv && uv pip install -e . -e ../face
 python -m qav_engine.worker download-files                   #    VAD weights (skip if QAV_STT=mock)
-python -m qav_engine.worker dev                              # 4. engine
+python -m qav_engine.worker start                            # 4. engine
+cd ../face && python -m qav_face.worker start                # 5. face worker
 
-pnpm dev:web                    # 5. demo → http://localhost:3000 → Start
+pnpm dev:web                    # 6. demo → http://localhost:3000
 ```
-
-Pick a "placeholder (CPU)" avatar for this mode; photoreal avatars need the GPU
-worker below.
+</details>
 
 ## Adding the photoreal face
 

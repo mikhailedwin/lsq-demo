@@ -8,8 +8,8 @@
     "node": ">=20"
   },
   "scripts": {
-    "build": "pnpm -r --filter ./packages/* --filter ./apps/* build",
-    "typecheck": "pnpm -r --filter ./packages/* --filter ./apps/* typecheck",
+    "build": "pnpm -r --filter './packages/*' --filter './apps/*' build",
+    "typecheck": "pnpm -r --filter './packages/*' --filter './apps/*' typecheck",
     "dev:api": "pnpm --filter @qav/api dev",
     "dev:web": "pnpm --filter @qav/web dev",
     "dev:sdk": "pnpm --filter @qav/js-sdk dev",

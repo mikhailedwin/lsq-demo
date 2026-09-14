@@ -25,3 +25,6 @@ out/
 .DS_Store
 .idea/
 .vscode/
+
+# local dev logs
+.dev-logs/

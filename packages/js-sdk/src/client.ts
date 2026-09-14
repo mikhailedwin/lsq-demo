@@ -418,7 +418,16 @@ export class QavClient extends TypedEmitter {
     await new Promise<void>((resolve, reject) => {
       const timer = setTimeout(() => {
         this.removeListener(QavEvent.VIDEO_STREAM_STARTED, onVideo);
-        reject(new QavError(`avatar did not publish video within ${timeout}ms`, "avatar_timeout"));
+        // Overwhelmingly this means no worker picked the job up — usually a
+        // GPU avatar with no face worker running — so say so rather than
+        // leaving the reader with a bare timeout.
+        reject(
+          new QavError(
+            `The avatar never joined (waited ${timeout / 1000}s). ` +
+              `Check that a face worker is running for this avatar's renderer.`,
+            "avatar_timeout",
+          ),
+        );
       }, timeout);
       const onVideo = () => {
         clearTimeout(timer);
