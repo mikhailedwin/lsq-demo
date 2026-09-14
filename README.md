@@ -195,6 +195,18 @@ QAV_PREVIEW_DIR=/tmp/qav python -m pytest -k preview   # contact sheet of the CP
 The GPU backends are unit-tested for contract and error handling without a GPU;
 their visual output is verified with `qav-face selftest` on the GPU box.
 
+## Putting it in front of a client
+
+[`infra/DEPLOY.md`](infra/DEPLOY.md) is the step-by-step: Vercel for the web
+app, Railway for the control plane and engine, LiveKit Cloud's free tier for
+media, and a RunPod pod started only while you're demoing. Roughly $5/month
+standing plus about $1 per demo.
+
+Set `QAV_ACCESS_CODE` to put the demo behind a short code — visitors get a
+code screen and the app's markup isn't served until they're through. It is a
+budget guard, not authentication; see DEPLOY.md for what it does and doesn't
+protect.
+
 ## Production notes
 
 - Real `QAV_API_KEY` / `QAV_SESSION_SECRET`, TLS in front of the API and LiveKit (`wss://`).

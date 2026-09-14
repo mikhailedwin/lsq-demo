@@ -668,6 +668,122 @@ textarea {
   text-align: center;
 }
 
+/* -------------------------------------------------------------- access gate */
+
+.gate {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+}
+
+.gate-card {
+  width: 100%;
+  max-width: 420px;
+  border-radius: var(--r-stage);
+  padding: 28px 28px 32px;
+  text-align: center;
+  animation: rise 0.45s var(--ease-out);
+}
+
+.gate-brand {
+  --logo-cap: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  padding-bottom: 22px;
+  margin-bottom: 24px;
+  border-bottom: 0.5px solid rgba(29, 29, 31, 0.12);
+}
+.gate-brand img {
+  display: block;
+  width: auto;
+  max-width: 42%;
+  object-fit: contain;
+}
+.gate-brand img[alt="Lux Sanans"] {
+  height: calc(var(--logo-cap) / 0.846);
+}
+.gate-brand img[alt="Quantanite"] {
+  height: calc(var(--logo-cap) / 0.617);
+}
+
+.gate-card h1 {
+  margin: 0 0 6px;
+  font-size: 22px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+}
+.gate-card > p {
+  margin: 0 0 22px;
+  color: var(--ink-2);
+  font-size: 14px;
+}
+
+.gate-boxes {
+  display: flex;
+  justify-content: center;
+  gap: 10px;
+}
+.gate-boxes input {
+  width: 54px;
+  height: 64px;
+  text-align: center;
+  font-size: 26px;
+  font-weight: 500;
+  text-transform: uppercase;
+  border: 0.5px solid rgba(255, 255, 255, 0.8);
+  border-radius: var(--r-inner);
+  background: rgba(255, 255, 255, 0.7);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.95),
+    0 2px 6px rgba(24, 39, 75, 0.08);
+  transition:
+    box-shadow 0.22s var(--ease),
+    background 0.22s var(--ease);
+}
+.gate-boxes input:focus {
+  outline: none;
+  background: rgba(255, 255, 255, 0.95);
+  box-shadow:
+    0 0 0 4px rgba(0, 113, 227, 0.3),
+    inset 0 1px 0 rgba(255, 255, 255, 1);
+}
+.gate-boxes input:disabled {
+  opacity: 0.6;
+}
+
+.gate-error,
+.gate-busy {
+  margin: 18px 0 0;
+  font-size: 14px;
+}
+.gate-error {
+  color: #c92a20;
+  animation: shake 0.32s var(--ease);
+}
+.gate-busy {
+  color: var(--ink-2);
+}
+@keyframes shake {
+  25% {
+    transform: translateX(-5px);
+  }
+  75% {
+    transform: translateX(5px);
+  }
+}
+
+@media (max-width: 420px) {
+  .gate-boxes input {
+    width: 48px;
+    height: 58px;
+    font-size: 22px;
+  }
+}
+
 /* ------------------------------------------------------------------- sheet */
 
 .scrim {
