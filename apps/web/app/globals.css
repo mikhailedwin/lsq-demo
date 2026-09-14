@@ -135,12 +135,10 @@ textarea {
 }
 
 .glass-light {
-  background: rgba(255, 255, 255, 0.74);
+  background: rgba(255, 255, 255, 0.58);
   backdrop-filter: blur(34px) saturate(190%);
   -webkit-backdrop-filter: blur(34px) saturate(190%);
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.95),
-    inset 0 -0.5px 0 rgba(0, 0, 0, 0.06);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.95);
 }
 
 /* ------------------------------------------------------------------ layout */
@@ -151,11 +149,18 @@ textarea {
    phone. Flex sizes children to the space that actually exists. */
 .app {
   min-height: 100vh;
+  min-height: 100svh; /* iOS: 100vh includes the address bar, so it overflows */
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
   padding: 40px 24px 52px;
+
+  /* Vertical budget for everything that is not the video: the brand bar, the
+     button under the stage, the gaps and this padding. The stage is capped
+     against it (see .stage-col) so the card grows to fill a phone but never
+     pushes the button off a short laptop screen. */
+  --chrome: 300px;
 }
 
 /* Stage and conversation sit side by side and centre as a pair, so collapsing
@@ -168,9 +173,15 @@ textarea {
   width: 100%;
 }
 
+/* Width is capped by the height that's actually free, not just by 640px. The
+   video box is `--vp-aspect` wide per unit tall, so the tallest stage that
+   still leaves room for the chrome is (free height × aspect) wide. One rule
+   covers every screen: a phone gets a card that fills it instead of a small
+   one marooned in the wash, a short laptop gets a smaller one, and neither
+   scrolls. */
 .stage-col {
   width: 100%;
-  max-width: min(640px, 100%);
+  max-width: min(640px, 100%, calc((100svh - var(--chrome)) * var(--vp-aspect, 1)));
   min-width: 0;
   display: flex;
   flex-direction: column;
@@ -307,6 +318,10 @@ textarea {
   justify-content: space-between;
   gap: 24px;
   padding: 18px 26px;
+  /* A hairline instead of a hard edge: at 0.74 white over a pale wash the bar
+     read as an opaque slab bolted to the top of the card rather than the same
+     pane of glass. Both marks still clear 7:1 against it. */
+  border-bottom: 0.5px solid rgba(255, 255, 255, 0.5);
 }
 .stage-brand img {
   display: block;
@@ -321,18 +336,42 @@ textarea {
   height: calc(var(--logo-cap) / 0.617);
 }
 
+/* Idle sits at the renderer's own default (512×512), so the card doesn't
+   resize the moment the call connects. Once video arrives the element carries
+   the stream's real ratio. */
 .viewport {
   position: relative;
   width: 100%;
+  aspect-ratio: var(--vp-aspect, 1);
   display: grid;
   place-items: center;
   transition: aspect-ratio 0.55s var(--ease-out);
+  /* The pre-call hero is sized in cqw below, so it keeps the same proportions
+     against the card on a phone and on a 27" display instead of being a fixed
+     84px bead marooned in a 600px square. */
+  container-type: size;
 }
 .viewport video {
   width: 100%;
   height: 100%;
   object-fit: cover;
   display: block;
+  /* Kept in the layout but invisible until a track is playing: an empty
+     <video> is not neutral. iOS Safari paints its own large play glyph in the
+     centre of one it cannot render, which landed on top of the headline.
+     Hidden with opacity rather than display:none, because Safari will not
+     start a track in an element it isn't rendering. */
+  opacity: 0;
+  transition: opacity 0.4s var(--ease);
+}
+.viewport.is-playing video {
+  opacity: 1;
+}
+/* the same glyph, removed at the source */
+video::-webkit-media-controls-start-playback-button,
+video::-webkit-media-controls {
+  display: none !important;
+  -webkit-appearance: none;
 }
 
 /* ------------------------------------------------------------ pre-call state */
@@ -345,12 +384,15 @@ textarea {
   align-items: center;
   justify-content: center;
   gap: 12px;
+  gap: clamp(10px, 2.6cqw, 18px);
   padding: 32px;
+  padding: clamp(20px, 7cqw, 40px);
   text-align: center;
 }
 .placeholder h1 {
   margin: 0;
-  font-size: 36px;
+  font-size: 34px;
+  font-size: clamp(24px, 9cqw, 42px);
   font-weight: 600;
   letter-spacing: -0.028em;
 }
@@ -359,6 +401,7 @@ textarea {
   max-width: 32ch;
   color: var(--ink-2);
   font-size: 15px;
+  font-size: clamp(14px, 3.6cqw, 18px);
 }
 .placeholder p.is-error {
   color: #c92a20;
@@ -367,7 +410,11 @@ textarea {
 /* A glass bead: refracts the wash behind it rather than sitting on it. */
 .orb {
   width: 84px;
-  height: 84px;
+  width: clamp(64px, 19cqw, 124px);
+  /* a flex item in a column shrinks vertically before it clips: without this
+     the bead rendered as a squashed ellipse whenever the card was short */
+  flex: 0 0 auto;
+  aspect-ratio: 1;
   margin-bottom: 4px;
   border-radius: 50%;
   background:
@@ -672,6 +719,7 @@ textarea {
 
 .gate {
   min-height: 100vh;
+  min-height: 100svh;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -999,11 +1047,25 @@ textarea {
 
 @media (max-width: 560px) {
   .app {
-    padding: 16px 12px 28px;
+    padding: 16px 14px 24px;
+    /* less chrome to reserve than on desktop: tighter padding, a shorter
+       brand bar and a smaller gap under the stage */
+    --chrome: 208px;
   }
   .float-controls {
     top: 14px;
     right: 14px;
+  }
+  .stage-col {
+    gap: 14px;
+  }
+
+  /* A phone has one column and no hover: the primary action reads better as a
+     full-width bar than as a small pill floating under the card. */
+  .btn {
+    width: 100%;
+    justify-content: center;
+    padding: 15px 24px;
   }
 
   /* A phone's video is small: the controls should not eat a third of the face.
@@ -1032,9 +1094,6 @@ textarea {
   .stage-brand {
     padding: 14px 18px;
     --logo-cap: 15px;
-  }
-  .placeholder h1 {
-    font-size: 28px;
   }
   .icon-btn.floating {
     top: 14px;

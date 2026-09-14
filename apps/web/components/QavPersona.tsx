@@ -175,8 +175,14 @@ export function QavPersona() {
     ambient.forEach((c, i) => s.setProperty(`--amb-${i + 1}`, c));
   }, [ambient]);
 
+  // One number drives both the video box's shape and how wide the stage is
+  // allowed to grow: the CSS caps the stage against the height that is
+  // actually free (see .stage-col). Idle sits at the renderer's own 512×512
+  // default, so connecting doesn't resize the card under you.
+  const vpAspect = videoPlaying ? aspect : 1;
+
   return (
-    <div className="app">
+    <div className="app" style={{ "--vp-aspect": vpAspect } as React.CSSProperties}>
       <div className={`float-controls ${sheet ? "is-hidden" : ""}`}>
         {live && (
           <button
@@ -203,9 +209,9 @@ export function QavPersona() {
             <img src="/logos/quantanite.png" alt="Quantanite" width={512} height={107} />
           </header>
 
-          {/* Before the call this is a short hero; once video arrives it takes the
+          {/* Before the call this is the hero; once video arrives it takes the
               stream's own aspect ratio, whatever the renderer is configured for. */}
-          <div className="viewport" style={{ aspectRatio: videoPlaying ? String(aspect) : "16 / 10" }}>
+          <div className={`viewport ${videoPlaying ? "is-playing" : ""}`}>
             <video
               ref={videoRef}
               id="qav-video"
