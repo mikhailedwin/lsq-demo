@@ -75,9 +75,15 @@ dispatches the face worker rather than rendering in-process.
   "No Next.js version detected". `apps/web/vercel.json` is read from there too.
 - **Framework**: Next.js (detected).
 
-`buildCommand` builds `@qav/js-sdk` before the web app, because the web app
-imports it from `dist/` and a fresh clone has no `dist/`. `pnpm --filter` walks
-up to find the workspace root on its own, so nothing needs to `cd`.
+`vercel.json` sets only the framework and security headers — no
+`buildCommand` and no `outputDirectory`. Overriding those for a Next.js project
+is what produced a green build serving a bare `404: NOT_FOUND`: Vercel stopped
+treating the output as a Next.js app and served it as a static folder.
+
+The SDK still has to be built first (the web app imports it from `dist/`, which
+a fresh clone doesn't have). That's a `prebuild` script in
+`apps/web/package.json`, which pnpm runs automatically before `build`, so
+Vercel's normal Next.js build path is left completely untouched.
 
 Environment variables:
 
