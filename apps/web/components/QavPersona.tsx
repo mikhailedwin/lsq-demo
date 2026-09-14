@@ -228,8 +228,8 @@ export function QavPersona() {
                 {phase === "idle" && !error ? (
                   <>
                     <span className="orb" aria-hidden="true" />
-                    <h1>Meet {name}</h1>
-                    <p>A real-time avatar you can talk to, running on your own infrastructure.</p>
+                    <h1>Project LSQ</h1>
+                    <p>The new face of customer experience — live, on-brand, 24/7.</p>
                   </>
                 ) : (
                   <>
